@@ -1,0 +1,4 @@
+/* App-specific styles - MUI handles most styling */
+.app {
+  min-height: 100vh;
+}
