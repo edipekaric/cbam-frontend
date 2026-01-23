@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Outlet, useLocation } from 'react-router-dom';
+import SessionExpired from './SessionExpired';
+import { isTokenExpired } from './utils/api';
 import {
   AppBar,
   Toolbar,
@@ -54,6 +56,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
   const [userName, setUserName] = useState<string>('User');
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [currentView, setCurrentView] = useState<'dashboard' | 'calculation' | 'report' | 'sharing'>('dashboard');
   const navigate = useNavigate();
   const location = useLocation();
@@ -64,7 +67,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
       try {
         const token = localStorage.getItem('token');
         if (!token) {
-          onLogout();
+          navigate('/login');
           return;
         }
 
@@ -82,26 +85,23 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
             setUser(data.user);
             // Use username as display name (not companyName)
             setUserName(data.user.username || 'User');
+            setSessionExpired(false);
           }
         } else if (response.status === 401) {
-          // Token expired or invalid
+          // Token expired or invalid - show session expired screen
           localStorage.removeItem('token');
           localStorage.removeItem('user');
-          onLogout();
+          setSessionExpired(true);
         }
       } catch (error) {
         console.error('Error fetching user:', error);
-        // Fallback to stored user data from localStorage
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-          try {
-            const userData = JSON.parse(storedUser);
-            setUser(userData);
-            // Use username as display name (not companyName)
-            setUserName(userData.username || 'User');
-          } catch (e) {
-            console.error('Error parsing stored user:', e);
-          }
+        // On error, check if token exists - if not, redirect to login
+        const token = localStorage.getItem('token');
+        if (!token) {
+          navigate('/login');
+        } else {
+          // Token exists but request failed - might be expired
+          setSessionExpired(true);
         }
       } finally {
         setLoading(false);
@@ -109,7 +109,48 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
     };
 
     fetchCurrentUser();
-  }, [onLogout]);
+
+    // Set up periodic token validation (check every 1 hour and 2 minutes)
+    const intervalId = setInterval(() => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        // First check client-side expiration (faster, no API call needed)
+        const expired = isTokenExpired(token);
+        if (expired === true) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setSessionExpired(true);
+          return;
+        }
+
+        // Also verify with backend (in case of clock skew or other issues)
+        fetch(`${API_BASE_URL}/users/me`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        })
+          .then((response) => {
+            if (response.status === 401) {
+              // Token expired on server side
+              localStorage.removeItem('token');
+              localStorage.removeItem('user');
+              setSessionExpired(true);
+            }
+          })
+          .catch((error) => {
+            // Network error - don't log out, just log
+            console.error('Token validation error:', error);
+          });
+      } else {
+        // No token found, show expired screen
+        setSessionExpired(true);
+      }
+    }, (60 + 2) * 60 * 1000); // Check every 1 hour and 2 minutes (62 minutes)
+
+    return () => clearInterval(intervalId);
+  }, [navigate]);
 
   const handleMenuClick = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -121,6 +162,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
 
   const handleLogout = () => {
     setAnchorEl(null);
+    // Clear localStorage
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     onLogout();
   };
 
@@ -247,6 +291,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
       label: 'Shared Reports'
     }
   ];
+
+  // Show session expired screen if session expired
+  if (sessionExpired) {
+    return <SessionExpired />;
+  }
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>

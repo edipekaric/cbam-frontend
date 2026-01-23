@@ -25,6 +25,7 @@ import {
 import Login from './Login';
 import Dashboard from './Dashboard';
 import NewCalculation from './NewCalculation';
+import ProtectedRoute from './ProtectedRoute';
 import {
   TrendingDown,
   Shield,
@@ -876,7 +877,10 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
-    navigate('/');
+    // Clear localStorage on logout
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/login');
   };
 
   return (
@@ -888,7 +892,11 @@ const App: React.FC = () => {
       />
       <Route 
         path="/dashboard" 
-        element={<Dashboard onLogout={handleLogout} />}
+        element={
+          <ProtectedRoute>
+            <Dashboard onLogout={handleLogout} />
+          </ProtectedRoute>
+        }
       >
         <Route path="new-calculation" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam" element={<NewCalculation />} />
