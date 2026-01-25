@@ -904,6 +904,21 @@ const App: React.FC = () => {
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/electricity" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/electricity" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/electricity/grid" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/electricity/self-power" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/electricity/ppa" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/electricity/ppa/yes" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/electricity/ppa/no" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/electricity/grid" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/electricity/self-power" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/electricity/ppa" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/electricity/ppa/yes" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/electricity/ppa/no" element={<NewCalculation />} />
       </Route>
     </Routes>
   );
