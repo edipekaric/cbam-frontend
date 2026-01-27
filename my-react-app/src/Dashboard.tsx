@@ -54,7 +54,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080
 const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [userName, setUserName] = useState<string>('User');
-  const [user, setUser] = useState<User | null>(null);
+  const [, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [currentView, setCurrentView] = useState<'dashboard' | 'calculation' | 'report' | 'sharing'>('dashboard');

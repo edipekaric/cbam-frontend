@@ -93,9 +93,9 @@ const NewCalculation: React.FC = () => {
   const [carbonPercentage, setCarbonPercentage] = useState<string>('');
 
   // PFC input state
-  const [pfcQuantity, setPfcQuantity] = useState<string>('');
-  const [hasPfcCarbonPercentage, setHasPfcCarbonPercentage] = useState<string>('');
-  const [pfcCarbonPercentage, setPfcCarbonPercentage] = useState<string>('');
+  const [_pfcQuantity, _setPfcQuantity] = useState<string>('');
+  const [_hasPfcCarbonPercentage, _setHasPfcCarbonPercentage] = useState<string>('');
+  const [_pfcCarbonPercentage, _setPfcCarbonPercentage] = useState<string>('');
   const [pfcMethod, setPfcMethod] = useState<string>('');
 
   // Slope (PFC method a) input state
