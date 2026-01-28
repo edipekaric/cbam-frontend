@@ -1,4 +1,7 @@
+// Backend API base URL. Must be set via VITE_API_BASE_URL during Docker build (via GitHub Actions build-args).
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+export { API_BASE_URL };
 
 export interface ApiResponse<T> {
   success: boolean;
