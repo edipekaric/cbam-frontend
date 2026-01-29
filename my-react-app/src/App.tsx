@@ -25,6 +25,7 @@ import {
 import Login from './Login';
 import Dashboard from './Dashboard';
 import NewCalculation from './NewCalculation';
+import Admin from './Admin';
 import ProtectedRoute from './ProtectedRoute';
 import {
   TrendingDown,
@@ -886,6 +887,7 @@ const App: React.FC = () => {
   return (
     <Routes>
       <Route path="/" element={<CBAMLandingPage />} />
+      <Route path="/admin" element={<Admin />} />
       <Route 
         path="/login" 
         element={<Login onBack={handleBackToHome} onLoginSuccess={handleLoginSuccess} />} 
