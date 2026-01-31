@@ -22,6 +22,10 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Shield,
@@ -36,6 +40,7 @@ import {
   ArrowUpward,
   ArrowDownward,
   Add,
+  Business,
 } from '@mui/icons-material';
 import { API_BASE_URL } from './utils/api';
 
@@ -55,8 +60,16 @@ interface StoredUser {
   role: string;
 }
 
+interface Company {
+  id: number;
+  name: string;
+  createdAt?: string;
+  modifiedAt?: string;
+}
+
 const DATA_TABLES: { id: string; label: string; endpoint: string; responseKey: string; createEndpoint: string }[] = [
   { id: 'admins', label: 'Admins', endpoint: '/admin/all', responseKey: 'admins', createEndpoint: '/admin/create' },
+  { id: 'companies', label: 'Companies', endpoint: '/companies/all', responseKey: 'companies', createEndpoint: '/companies/create' },
   { id: 'users', label: 'Users', endpoint: '/users', responseKey: 'users', createEndpoint: '/users/create' },
   { id: 'emission-factors', label: 'Emission Factors', endpoint: '/emission-factors/all', responseKey: 'emissionFactors', createEndpoint: '/emission-factors/create' },
   { id: 'emission-factor-types', label: 'Emission Factor Types', endpoint: '/emission-factor-types/all', responseKey: 'emissionFactorTypes', createEndpoint: '/emission-factor-types/create' },
@@ -122,6 +135,13 @@ const Admin: React.FC = () => {
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState('');
 
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [companiesLoading, setCompaniesLoading] = useState(false);
+  const [createCompanyName, setCreateCompanyName] = useState('');
+  const [createCompanyLoading, setCreateCompanyLoading] = useState(false);
+  const [createCompanyError, setCreateCompanyError] = useState('');
+  const [createCompanySuccess, setCreateCompanySuccess] = useState('');
+
   useEffect(() => {
     const userStr = localStorage.getItem('user');
     const token = localStorage.getItem('token');
@@ -152,6 +172,22 @@ const Admin: React.FC = () => {
       .catch(() => setAdmins([]))
       .finally(() => setAdminsLoading(false));
   }, [isAdmin, createSuccess]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    setCompaniesLoading(true);
+    fetch(`${API_BASE_URL}/companies/all`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.companies) setCompanies(data.companies);
+      })
+      .catch(() => setCompanies([]))
+      .finally(() => setCompaniesLoading(false));
+  }, [isAdmin, createCompanySuccess]);
 
   const loadDataTable = (tableId: string) => {
     const config = DATA_TABLES.find((t) => t.id === tableId);
@@ -220,7 +256,8 @@ const Admin: React.FC = () => {
   const getDefaultAddForm = (tableId: string): Record<string, string> => {
     const defaults: Record<string, Record<string, string>> = {
       admins: { username: '', email: '', password: '' },
-      users: { username: '', email: '', password: '', companyName: '' },
+      users: { username: '', email: '', password: '', companyId: '' },
+      companies: { name: '' },
       'emission-factors': { sector: '', subsector: '', subsubsector: '', emissionFactorName: '', emissionFactorTypeId: '', nominatorId: '', denominatorId: '', emissionFactorValueId: '', createdByUserId: '' },
       'emission-factor-types': { emissionFactorType: '' },
       'emission-factor-values': { value: '', co2: '', ch4: '', n2o: '', hfcs: '', pfcs: '', sf6: '', nf3: '', description: '', year: '', location: '', sourceName: '', sourceUrl: '', sourceAuthor: '', tags: '' },
@@ -251,9 +288,37 @@ const Admin: React.FC = () => {
     setAddError('');
     try {
       let body: Record<string, unknown> = {};
+      if (dataTableId === 'companies') {
+        const name = addForm.name?.trim();
+        if (!name) {
+          setAddError('Company name is required.');
+          setAddLoading(false);
+          return;
+        }
+        const res = await fetch(
+          `${API_BASE_URL}${config.createEndpoint}?name=${encodeURIComponent(name)}`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setAddDialogOpen(false);
+          loadDataTable(dataTableId);
+          setCreateCompanySuccess((s) => (s ? '' : ' ')); // refresh companies list on tab 0
+        } else {
+          setAddError(data.message || 'Failed to create company.');
+        }
+        setAddLoading(false);
+        return;
+      }
       if (dataTableId === 'admins' || dataTableId === 'users') {
         body = { username: addForm.username, email: addForm.email, password: addForm.password };
-        if (dataTableId === 'users') body.companyName = addForm.companyName || undefined;
+        if (dataTableId === 'users' && addForm.companyId) {
+          const companyId = Number(addForm.companyId);
+          if (!Number.isNaN(companyId)) body.companyId = companyId;
+        }
       } else if (dataTableId === 'emission-factor-types') {
         body = { emissionFactorType: addForm.emissionFactorType };
       } else if (dataTableId === 'nominators') {
@@ -387,6 +452,43 @@ const Admin: React.FC = () => {
 
   const handleBackToHome = () => {
     window.location.href = '/';
+  };
+
+  const handleCreateCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateCompanyError('');
+    setCreateCompanySuccess('');
+    const name = createCompanyName.trim();
+    if (!name) {
+      setCreateCompanyError('Company name is required.');
+      return;
+    }
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setCreateCompanyError('Not authenticated.');
+      return;
+    }
+    setCreateCompanyLoading(true);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/companies/create?name=${encodeURIComponent(name)}`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setCreateCompanySuccess('Company created successfully.');
+        setCreateCompanyName('');
+      } else {
+        setCreateCompanyError(data.message || 'Failed to create company.');
+      }
+    } catch {
+      setCreateCompanyError('Request failed. Please try again.');
+    } finally {
+      setCreateCompanyLoading(false);
+    }
   };
 
   if (isAdmin === null) {
@@ -601,6 +703,90 @@ const Admin: React.FC = () => {
             </TableContainer>
           )}
         </Paper>
+
+        <Box sx={{ mt: 4, mb: 3 }}>
+          <Paper elevation={2} sx={{ p: 3, borderRadius: 2 }}>
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }} gutterBottom>
+              Create company
+            </Typography>
+            {createCompanyError && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {createCompanyError}
+              </Alert>
+            )}
+            {createCompanySuccess && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                {createCompanySuccess}
+              </Alert>
+            )}
+            <form onSubmit={handleCreateCompany}>
+              <Stack spacing={2} direction={{ xs: 'column', sm: 'row' }} flexWrap="wrap" useFlexGap alignItems="center">
+                <TextField
+                  label="Company name"
+                  value={createCompanyName}
+                  onChange={(e) => setCreateCompanyName(e.target.value)}
+                  required
+                  size="small"
+                  sx={{ minWidth: 240 }}
+                />
+                <Button
+                  type="submit"
+                  variant="contained"
+                  startIcon={createCompanyLoading ? <CircularProgress size={18} /> : <Business />}
+                  disabled={createCompanyLoading}
+                >
+                  {createCompanyLoading ? 'Creating...' : 'Create company'}
+                </Button>
+              </Stack>
+            </form>
+          </Paper>
+        </Box>
+
+        <Paper elevation={2} sx={{ borderRadius: 2, overflow: 'hidden' }}>
+          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Companies
+            </Typography>
+          </Box>
+          {companiesLoading ? (
+            <Box sx={{ p: 4, textAlign: 'center' }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>ID</TableCell>
+                    <TableCell>Name</TableCell>
+                    <TableCell>Created</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {companies.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={3} align="center" sx={{ py: 3 }}>
+                        No companies
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    companies.map((company) => (
+                      <TableRow key={company.id}>
+                        <TableCell>{company.id}</TableCell>
+                        <TableCell>{company.name}</TableCell>
+                        <TableCell>
+                          {company.createdAt
+                            ? new Date(company.createdAt).toLocaleDateString()
+                            : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Paper>
         </Box>
         )}
 
@@ -728,8 +914,30 @@ const Admin: React.FC = () => {
                             <TextField label="Username" value={addForm.username ?? ''} onChange={(e) => setAddForm((f) => ({ ...f, username: e.target.value }))} required size="small" fullWidth />
                             <TextField label="Email" type="email" value={addForm.email ?? ''} onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))} required size="small" fullWidth />
                             <TextField label="Password" type="password" value={addForm.password ?? ''} onChange={(e) => setAddForm((f) => ({ ...f, password: e.target.value }))} required size="small" fullWidth inputProps={{ minLength: 6 }} />
-                            {dataTableId === 'users' && <TextField label="Company name" value={addForm.companyName ?? ''} onChange={(e) => setAddForm((f) => ({ ...f, companyName: e.target.value }))} size="small" fullWidth />}
+                            {dataTableId === 'users' && (
+                              <FormControl size="small" fullWidth>
+                                <InputLabel id="add-user-company-label">Company</InputLabel>
+                                <Select
+                                  labelId="add-user-company-label"
+                                  label="Company"
+                                  value={addForm.companyId ?? ''}
+                                  onChange={(e) => setAddForm((f) => ({ ...f, companyId: e.target.value }))}
+                                >
+                                  <MenuItem value="">
+                                    <em>None</em>
+                                  </MenuItem>
+                                  {companies.map((c) => (
+                                    <MenuItem key={c.id} value={String(c.id)}>
+                                      {c.name} (ID:{c.id})
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                            )}
                           </>
+                        )}
+                        {dataTableId === 'companies' && (
+                          <TextField label="Company name" value={addForm.name ?? ''} onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))} required size="small" fullWidth />
                         )}
                         {dataTableId === 'emission-factor-types' && (
                           <TextField label="Emission factor type" value={addForm.emissionFactorType ?? ''} onChange={(e) => setAddForm((f) => ({ ...f, emissionFactorType: e.target.value }))} required size="small" fullWidth />
