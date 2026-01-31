@@ -25,6 +25,7 @@ import {
 import Login from './Login';
 import Dashboard from './Dashboard';
 import NewCalculation from './NewCalculation';
+import CalculationsList from './CalculationsList';
 import Admin from './Admin';
 import ProtectedRoute from './ProtectedRoute';
 import {
@@ -900,6 +901,7 @@ const App: React.FC = () => {
           </ProtectedRoute>
         }
       >
+        <Route path="calculations" element={<CalculationsList />} />
         <Route path="new-calculation" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam/:productTypeParam" element={<NewCalculation />} />

@@ -36,6 +36,7 @@ import {
   Notifications,
   Help,
   ArrowBack,
+  ArrowForward,
 } from '@mui/icons-material';
 
 interface DashboardProps {
@@ -58,6 +59,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
   const [currentView, setCurrentView] = useState<'dashboard' | 'calculation' | 'report' | 'sharing'>('dashboard');
   const [newCalcError, setNewCalcError] = useState<string | null>(null);
   const [newCalcLoading, setNewCalcLoading] = useState(false);
+  const [calculationsCount, setCalculationsCount] = useState<number | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -109,6 +111,19 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
     };
 
     fetchCurrentUser();
+
+    // Fetch calculations count for current user
+    const fetchCalculationsCount = async () => {
+      const meResult = await apiRequest<{ success: boolean; user?: { id: number } }>('/users/me');
+      if (meResult === null || !meResult.data.success || !meResult.data.user?.id) return;
+      const calcResult = await apiRequest<{ success: boolean; calculations?: unknown[] }>(
+        `/calculations/user/${meResult.data.user.id}`
+      );
+      if (calcResult !== null && calcResult.data.success && Array.isArray(calcResult.data.calculations)) {
+        setCalculationsCount(calcResult.data.calculations.length);
+      }
+    };
+    fetchCalculationsCount();
 
     // Set up periodic token validation (check every 1 hour and 2 minutes)
     const intervalId = setInterval(() => {
@@ -299,14 +314,23 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
     </Container>
   );
 
-  const dashboardCards = [
+  const dashboardCards: Array<{
+    title: string;
+    description: string;
+    icon: React.ReactNode;
+    color: string;
+    count: string;
+    label: string;
+    seeAllHref?: string;
+  }> = [
     {
       title: 'CBAM Calculations',
       description: 'Calculate emissions for your products',
       icon: <Calculate />,
       color: '#059669',
-      count: '12',
-      label: 'Active Projects'
+      count: calculationsCount !== null ? String(calculationsCount) : '—',
+      label: 'Active Projects',
+      seeAllHref: '/dashboard/calculations',
     },
     {
       title: 'Reports Generated',
@@ -432,6 +456,16 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
                     <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
                       {card.label}
                     </Typography>
+                    {card.seeAllHref && (
+                      <Button
+                        component="span"
+                        endIcon={<ArrowForward />}
+                        onClick={() => navigate(card.seeAllHref!)}
+                        sx={{ mt: 2, px: 0, textTransform: 'none', color: card.color, fontWeight: 600 }}
+                      >
+                        See all
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               </Grid>
