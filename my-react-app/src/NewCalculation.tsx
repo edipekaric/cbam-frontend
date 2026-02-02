@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   Container,
@@ -24,48 +24,20 @@ import {
   Add,
 } from '@mui/icons-material';
 import { useProductCategories } from './hooks/useProductCategories';
+import { useQuestionsByStep } from './hooks/useQuestionsByStep';
+import { useCalculationAnswers } from './hooks/useCalculationAnswers';
 import { apiRequest } from './utils/api';
-
-// Fuel data with units and emission factors
-const fuelData = [
-  { name: 'Natural gas', unit: 'm³', emissionFactor: 2.06672 },
-  { name: 'Natural gas (100% mineral blend)', unit: 'm³', emissionFactor: 2.08906 },
-  { name: 'Butane', unit: 'tonnes', emissionFactor: 3033.38067 },
-  { name: 'CNG', unit: 'tonnes', emissionFactor: 2575.46441 },
-  { name: 'LNG', unit: 'tonnes', emissionFactor: 2603.30441 },
-  { name: 'LPG', unit: 'tonnes', emissionFactor: 2939.36095 },
-  { name: 'Other petroleum gas', unit: 'tonnes', emissionFactor: 2578.24647 },
-  { name: 'Propane', unit: 'tonnes', emissionFactor: 2997.63233 },
-  { name: 'Diesel (100% mineral diesel)', unit: 'litres', emissionFactor: 2.66155 },
-  { name: 'Diesel (average biofuel blend)', unit: 'litres', emissionFactor: 2.57082 },
-  { name: 'Gas oil', unit: 'litres', emissionFactor: 2.75541 },
-  { name: 'Fuel oil', unit: 'litres', emissionFactor: 3.17492 },
-  { name: 'Marine gas oil', unit: 'litres', emissionFactor: 2.77139 },
-  { name: 'Marine fuel oil', unit: 'litres', emissionFactor: 3.10202 },
-  { name: 'Burning oil', unit: 'litres', emissionFactor: 2.54016 },
-  { name: 'Naphtha (uslovno)', unit: 'litres', emissionFactor: 2.11894 },
-  { name: 'Waste oils (ako se sagorijevaju)', unit: 'litres', emissionFactor: 2.74924 },
-  { name: 'Coal (industrial)', unit: 'tonnes', emissionFactor: 2395.28994 },
-  { name: 'Coal (electricity generation)', unit: 'tonnes', emissionFactor: 2225.22448 },
-  { name: 'Coal (domestic)', unit: 'tonnes', emissionFactor: 2904.95234 },
-  { name: 'Coking coal', unit: 'tonnes', emissionFactor: 3164.65002 },
-  { name: 'Petroleum coke', unit: 'tonnes', emissionFactor: 3386.57168 },
-  { name: 'Coal (electricity generation – home produced)', unit: 'tonnes', emissionFactor: 2221.7467 },
-  { name: 'Bioethanol', unit: 'litres', emissionFactor: 0.00901 },
-  { name: 'Biodiesel ME', unit: 'litres', emissionFactor: 0.16751 },
-  { name: 'Biodiesel ME (from used cooking oil)', unit: 'litres', emissionFactor: 0.16751 },
-  { name: 'Biodiesel ME (from tallow)', unit: 'litres', emissionFactor: 0.16751 },
-  { name: 'Biodiesel HVO', unit: 'litres', emissionFactor: 0.03558 },
-  { name: 'Biopropane', unit: 'litres', emissionFactor: 0.00213 },
-  { name: 'Methanol (bio)', unit: 'litres', emissionFactor: 0.00669 },
-  { name: 'Avtur (renewable)', unit: 'litres', emissionFactor: 0.02531 },
-  { name: 'Wood logs', unit: 'tonnes', emissionFactor: 46.98508 },
-  { name: 'Wood chips', unit: 'tonnes', emissionFactor: 43.43964 },
-  { name: 'Wood pellets', unit: 'tonnes', emissionFactor: 55.19389 },
-  { name: 'Grass / straw', unit: 'tonnes', emissionFactor: 47.35709 },
-  { name: 'Biogas', unit: 'tonnes', emissionFactor: 1.24314 },
-  { name: 'Landfill gas', unit: 'tonnes', emissionFactor: 0.69696 },
-];
+import { getStepCode, optionCodeToFrontendState, frontendStateToOptionCode } from './utils/questionStepMapping';
+import { DynamicQuestionStep } from './components/DynamicQuestionStep';
+import { getAllQuestions } from './api/questions';
+import {
+  getLookupSectors,
+  getLookupSubsectors,
+  getLookupSubsubsectors,
+  getLookupEmissionFactorNames,
+  getLookupDenominators,
+  getLookupId,
+} from './api/emissionFactors';
 
 const NewCalculation: React.FC = () => {
   const navigate = useNavigate();
@@ -84,16 +56,29 @@ const NewCalculation: React.FC = () => {
   const [productionProcess, setProductionProcess] = useState('');
   const [dataQualityLevel, setDataQualityLevel] = useState('');
   
-  // Fuel input state - array of fuel entries
+  // Fuel input state - array of fuel entries (emission factor from API lookups)
   interface FuelEntry {
     id: number;
-    fuel: string;
+    sector: string;
+    subsector: string;
+    subsubsector: string;
+    emissionFactorName: string;
+    denominator: string;
     amount: string;
-    unit: string;
+    emissionFactorId: number | null;
+    emissionFactorValue: number | null; // numeric value for formula: value × Količina
   }
   const [fuelEntries, setFuelEntries] = useState<FuelEntry[]>([
-    { id: 1, fuel: '', amount: '', unit: '' }
+    { id: 1, sector: '', subsector: '', subsubsector: '', emissionFactorName: '', denominator: '', amount: '', emissionFactorId: null, emissionFactorValue: null }
   ]);
+  // Emission factor lookup options (sectors loaded once; rest keyed by parent selection)
+  const [fuelSectors, setFuelSectors] = useState<string[]>([]);
+  const [subsectorsBySector, setSubsectorsBySector] = useState<Record<string, string[]>>({});
+  const [subsubsectorsByKey, setSubsubsectorsByKey] = useState<Record<string, string[]>>({});
+  const [emissionFactorNamesByKey, setEmissionFactorNamesByKey] = useState<Record<string, string[]>>({});
+  const [denominatorsByKey, setDenominatorsByKey] = useState<Record<string, string[]>>({});
+  const [fuelLookupLoading, setFuelLookupLoading] = useState(false);
+  const [fuelLookupError, setFuelLookupError] = useState<string | null>(null);
 
   // Anodes input state
   const [anodesQuantity, setAnodesQuantity] = useState<string>('');
@@ -134,6 +119,147 @@ const NewCalculation: React.FC = () => {
   const [ppaEmissionFactor, setPpaEmissionFactor] = useState<string>('');
   const [ppaConsumption, setPpaConsumption] = useState<string>('');
   const [ppaConsumptionUnit, setPpaConsumptionUnit] = useState<string>('kWh');
+
+  // Step code for dynamic questions from DB (null = use existing hardcoded UI)
+  const stepCode = getStepCode({
+    step,
+    category,
+    aluminumProductType,
+    pathname: location.pathname,
+  });
+  const { questions: questionsFromApi, loading: questionsLoading, error: questionsError } = useQuestionsByStep(stepCode);
+  const { answers, getAnswer, setAnswer } = useCalculationAnswers(calculationId);
+
+  // Hydrate local state from saved calculation answers (once per calculation load)
+  const [questionIdToCode, setQuestionIdToCode] = useState<Record<number, string>>({});
+  const hasHydratedRef = useRef(false);
+  useEffect(() => {
+    if (!calculationId) return;
+    let cancelled = false;
+    getAllQuestions()
+      .then((list) => {
+        if (cancelled) return;
+        const map: Record<number, string> = {};
+        list.forEach((q) => {
+          map[q.id] = q.code;
+        });
+        setQuestionIdToCode(map);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [calculationId]);
+  useEffect(() => {
+    if (calculationId == null) hasHydratedRef.current = false;
+  }, [calculationId]);
+  useEffect(() => {
+    if (Object.keys(questionIdToCode).length === 0 || Object.keys(answers).length === 0 || hasHydratedRef.current) return;
+    hasHydratedRef.current = true;
+    Object.entries(answers).forEach(([qIdStr, valueText]) => {
+      const qId = Number(qIdStr);
+      const code = questionIdToCode[qId];
+      const valueStr = typeof valueText === 'string' ? valueText : '';
+      if (!code || valueStr === '') return;
+      const frontend = optionCodeToFrontendState(code, valueStr);
+      switch (code) {
+        case 'ALU_DECLARATION_PRODUCT':
+          setAluminumProductType(frontend);
+          break;
+        case 'ALU_UNWROUGHT_PRODUCTION_METHOD':
+          setProductionProcess(frontend);
+          break;
+        case 'ALU_PRODUCT_TYPE':
+          setAluminumProductSubtype(frontend);
+          break;
+        case 'ALU_DATA_AVAILABILITY':
+          setDataQualityLevel(frontend);
+          break;
+        case 'ALU_PFC_METHOD':
+          setPfcMethod(frontend);
+          break;
+        case 'ALU_ELECTRICITY_SOURCE':
+          setElectricitySource(frontend);
+          break;
+        case 'ALU_HAS_CARBON_PERCENT':
+          setHasCarbonPercentage(frontend);
+          break;
+        case 'ALU_ANODES_QTY':
+          setAnodesQuantity(valueStr);
+          break;
+        case 'ALU_ANODE_CARBON_PERCENT':
+          setCarbonPercentage(valueStr);
+          break;
+        case 'ALU_AE_FREQUENCY':
+          setAnodeEffectFrequency(valueStr);
+          break;
+        case 'ALU_AE_AVG_DURATION':
+          setAnodeEffectDuration(valueStr);
+          break;
+        case 'ALU_PRIMARY_AL_QTY':
+          setPrimaryAluminumQuantity(valueStr);
+          break;
+        case 'ALU_CELL_TECHNOLOGY':
+          setCellTechnology(valueStr.toLowerCase().replace(/_/g, '-'));
+          break;
+        default:
+          break;
+      }
+    });
+  }, [answers, questionIdToCode]);
+
+  // Derive answer for display: use saved answer or map from local state (for sync with URL/navigation)
+  const getLocalStateForQuestionCode = (code: string): string => {
+    switch (code) {
+      case 'ALU_DECLARATION_PRODUCT': return aluminumProductType;
+      case 'ALU_UNWROUGHT_PRODUCTION_METHOD': return productionProcess;
+      case 'ALU_PRODUCT_TYPE': return aluminumProductSubtype;
+      case 'ALU_DATA_AVAILABILITY': return dataQualityLevel;
+      case 'ALU_PFC_METHOD': return pfcMethod;
+      case 'ALU_ELECTRICITY_SOURCE': return electricitySource;
+      case 'ALU_HAS_CARBON_PERCENT': return hasCarbonPercentage;
+      case 'ALU_ANODES_QTY': return anodesQuantity;
+      case 'ALU_ANODE_CARBON_PERCENT': return carbonPercentage;
+      case 'ALU_AE_FREQUENCY': return anodeEffectFrequency;
+      case 'ALU_AE_AVG_DURATION': return anodeEffectDuration;
+      case 'ALU_PRIMARY_AL_QTY': return primaryAluminumQuantity;
+      case 'ALU_CELL_TECHNOLOGY': return cellTechnology;
+      default: return '';
+    }
+  };
+  const getAnswerForStep = (questionId: number): string => {
+    const v = getAnswer(questionId);
+    if (v != null && v !== '') return v;
+    const code = questionIdToCode[questionId];
+    if (!code) return getAnswer(questionId);
+    const local = getLocalStateForQuestionCode(code);
+    if (!local) return getAnswer(questionId);
+    // VALUE questions: local state is the value; SINGLE_CHOICE/MULTI_CHOICE: convert to option code
+    if (['ALU_ANODES_QTY', 'ALU_ANODE_CARBON_PERCENT', 'ALU_AE_FREQUENCY', 'ALU_AE_AVG_DURATION', 'ALU_PRIMARY_AL_QTY'].includes(code)) return local;
+    return frontendStateToOptionCode(code, local);
+  };
+  const handleOptionSelect = (questionCode: string, optionCode: string) => {
+    const frontend = optionCodeToFrontendState(questionCode, optionCode);
+    switch (questionCode) {
+      case 'ALU_DECLARATION_PRODUCT': setAluminumProductType(frontend); break;
+      case 'ALU_UNWROUGHT_PRODUCTION_METHOD': setProductionProcess(frontend); break;
+      case 'ALU_PRODUCT_TYPE': setAluminumProductSubtype(frontend); break;
+      case 'ALU_DATA_AVAILABILITY': setDataQualityLevel(frontend); break;
+      case 'ALU_PFC_METHOD': setPfcMethod(frontend); break;
+      case 'ALU_ELECTRICITY_SOURCE': setElectricitySource(frontend); break;
+      case 'ALU_CELL_TECHNOLOGY': setCellTechnology(frontend); break;
+      case 'ALU_HAS_CARBON_PERCENT': setHasCarbonPercentage(frontend); break;
+      default: break;
+    }
+  };
+  const handleValueChange = (questionCode: string, valueText: string) => {
+    switch (questionCode) {
+      case 'ALU_ANODES_QTY': setAnodesQuantity(valueText); break;
+      case 'ALU_ANODE_CARBON_PERCENT': setCarbonPercentage(valueText); break;
+      case 'ALU_AE_FREQUENCY': setAnodeEffectFrequency(valueText); break;
+      case 'ALU_AE_AVG_DURATION': setAnodeEffectDuration(valueText); break;
+      case 'ALU_PRIMARY_AL_QTY': setPrimaryAluminumQuantity(valueText); break;
+      default: break;
+    }
+  };
 
   // Get x1 coefficient based on cell technology
   const getX1Coefficient = (technology: string): number => {
@@ -224,17 +350,18 @@ const NewCalculation: React.FC = () => {
     return (aeoValue / ceValue) * quantity * x1 * 6630 * (1 + x2 * 11100);
   };
 
-  // Get the selected fuel's unit
-  const getFuelUnit = (fuelName: string) => {
-    const fuel = fuelData.find(f => f.name === fuelName);
-    return fuel ? fuel.unit : '';
-  };
-
-  // Get the selected fuel's emission factor
-  const getFuelEmissionFactor = (fuelName: string) => {
-    const fuel = fuelData.find(f => f.name === fuelName);
-    return fuel ? fuel.emissionFactor : 0;
-  };
+  // Load emission factor sectors when on fuel step (step 5)
+  useEffect(() => {
+    if (step !== 5 || !(category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'real-data')) return;
+    let cancelled = false;
+    setFuelLookupLoading(true);
+    setFuelLookupError(null);
+    getLookupSectors()
+      .then((list) => { if (!cancelled) setFuelSectors(list); })
+      .catch((e) => { if (!cancelled) setFuelLookupError(e instanceof Error ? e.message : 'Failed to load sectors'); setFuelSectors([]); })
+      .finally(() => { if (!cancelled) setFuelLookupLoading(false); });
+    return () => { cancelled = true; };
+  }, [step, category, aluminumProductType, dataQualityLevel]);
 
   // Calculate grid electricity emissions
   const calculateGridEmissions = (): number => {
@@ -314,37 +441,115 @@ const NewCalculation: React.FC = () => {
     return 0;
   };
 
-  // Handle fuel selection change - reset unit when fuel changes
-  const handleFuelChange = (id: number, fuelName: string) => {
-    setFuelEntries(prev => prev.map(entry => 
-      entry.id === id 
-        ? { ...entry, fuel: fuelName, unit: '' } 
-        : entry
-    ));
+  // Resolve emission factor id and value when sector, subsector, subsubsector, emissionFactorName, denominator are all set
+  const resolveEmissionFactorLookup = async (
+    sector: string,
+    subsector: string,
+    subsubsector: string,
+    emissionFactorName: string,
+    denominator: string
+  ): Promise<{ emissionFactorId: number | null; value: number | null }> => {
+    try {
+      return await getLookupId(sector, subsector, subsubsector || null, emissionFactorName, denominator);
+    } catch {
+      return { emissionFactorId: null, value: null };
+    }
   };
 
-  // Handle fuel amount change
+  const handleFuelSectorChange = (id: number, sector: string) => {
+    setFuelEntries(prev => prev.map(entry =>
+      entry.id === id
+        ? { ...entry, sector, subsector: '', subsubsector: '', emissionFactorName: '', denominator: '', emissionFactorId: null, emissionFactorValue: null }
+        : entry
+    ));
+    if (sector && !subsectorsBySector[sector]) {
+      getLookupSubsectors(sector).then((list) => setSubsectorsBySector((prev) => ({ ...prev, [sector]: list }))).catch(() => {});
+    }
+  };
+
+  const handleFuelSubsectorChange = (id: number, subsector: string) => {
+    const entry = fuelEntries.find((e) => e.id === id);
+    const sector = entry?.sector ?? '';
+    setFuelEntries(prev => prev.map(e =>
+      e.id === id ? { ...e, subsector, subsubsector: '', emissionFactorName: '', denominator: '', emissionFactorId: null, emissionFactorValue: null } : e
+    ));
+    if (sector && subsector) {
+      const key = `${sector}|${subsector}`;
+      if (!subsubsectorsByKey[key]) {
+        getLookupSubsubsectors(sector, subsector).then((list) => setSubsubsectorsByKey((prev) => ({ ...prev, [key]: list }))).catch(() => {});
+      }
+      // Also load emission factor names for this sector+subsector (subsubsector empty)
+      const namesKey = `${sector}|${subsector}|`;
+      if (!emissionFactorNamesByKey[namesKey]) {
+        getLookupEmissionFactorNames(sector, subsector, null).then((list) => setEmissionFactorNamesByKey((prev) => ({ ...prev, [namesKey]: list }))).catch(() => {});
+      }
+    }
+  };
+
+  const handleFuelSubsubsectorChange = (id: number, subsubsector: string) => {
+    const entry = fuelEntries.find((e) => e.id === id);
+    const sector = entry?.sector ?? '';
+    const subsector = entry?.subsector ?? '';
+    setFuelEntries(prev => prev.map(e =>
+      e.id === id ? { ...e, subsubsector, emissionFactorName: '', denominator: '', emissionFactorId: null, emissionFactorValue: null } : e
+    ));
+    if (sector && subsector) {
+      const key = `${sector}|${subsector}|${subsubsector}`;
+      if (!emissionFactorNamesByKey[key]) {
+        getLookupEmissionFactorNames(sector, subsector, subsubsector || null).then((list) => setEmissionFactorNamesByKey((prev) => ({ ...prev, [key]: list }))).catch(() => {});
+      }
+    }
+  };
+
+  const handleFuelEmissionFactorNameChange = (id: number, emissionFactorName: string) => {
+    const entry = fuelEntries.find((e) => e.id === id);
+    const sector = entry?.sector ?? '';
+    const subsector = entry?.subsector ?? '';
+    const subsubsector = entry?.subsubsector ?? '';
+    setFuelEntries(prev => prev.map(e =>
+      e.id === id ? { ...e, emissionFactorName, denominator: '', emissionFactorId: null, emissionFactorValue: null } : e
+    ));
+    if (sector && subsector && emissionFactorName) {
+      const key = `${sector}|${subsector}|${subsubsector}|${emissionFactorName}`;
+      if (!denominatorsByKey[key]) {
+        getLookupDenominators(sector, subsector, subsubsector || null, emissionFactorName).then((list) => setDenominatorsByKey((prev) => ({ ...prev, [key]: list }))).catch(() => {});
+      }
+    }
+  };
+
+  const handleFuelDenominatorChange = async (id: number, denominator: string) => {
+    const entry = fuelEntries.find(e => e.id === id);
+    if (!entry) return;
+    const { sector, subsector, subsubsector, emissionFactorName } = entry;
+    if (!sector || !subsector || !emissionFactorName || !denominator) {
+      setFuelEntries(prev => prev.map(e => (e.id === id ? { ...e, denominator } : e)));
+      return;
+    }
+    setFuelEntries(prev => prev.map(e => (e.id === id ? { ...e, denominator } : e)));
+    const lookup = await resolveEmissionFactorLookup(sector, subsector, subsubsector, emissionFactorName, denominator);
+    setFuelEntries(prev => prev.map(e => (e.id === id ? { ...e, emissionFactorId: lookup.emissionFactorId, emissionFactorValue: lookup.value } : e)));
+  };
+
   const handleFuelAmountChange = (id: number, amount: string) => {
-    setFuelEntries(prev => prev.map(entry => 
-      entry.id === id 
-        ? { ...entry, amount } 
-        : entry
-    ));
-  };
-
-  // Handle fuel unit change
-  const handleFuelUnitChange = (id: number, unit: string) => {
-    setFuelEntries(prev => prev.map(entry => 
-      entry.id === id 
-        ? { ...entry, unit } 
-        : entry
+    setFuelEntries(prev => prev.map(entry =>
+      entry.id === id ? { ...entry, amount } : entry
     ));
   };
 
   // Add a new fuel entry
   const handleAddFuel = () => {
     const newId = Math.max(...fuelEntries.map(e => e.id), 0) + 1;
-    setFuelEntries(prev => [...prev, { id: newId, fuel: '', amount: '', unit: '' }]);
+    setFuelEntries(prev => [...prev, {
+      id: newId,
+      sector: '',
+      subsector: '',
+      subsubsector: '',
+      emissionFactorName: '',
+      denominator: '',
+      amount: '',
+      emissionFactorId: null,
+      emissionFactorValue: null,
+    }]);
   };
 
   // Helper function to convert category name to URL slug
@@ -708,11 +913,19 @@ const NewCalculation: React.FC = () => {
       setStep(5); // Go to calculation form (A3, A4, or A5 based on selection)
     } else if (step === 5) {
       // Step 5 is the fuel input form (for fuels route)
-      // Validation: require fuel, unit, and amount for all fuel entries
+      // Validation: require sector, subsector, emissionFactorName, denominator, amount (and resolved emissionFactorId) for all fuel entries
       if (category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'real-data') {
-        const allValid = fuelEntries.every(entry => entry.fuel && entry.unit && entry.amount);
+        const allValid = fuelEntries.every(entry =>
+          entry.sector && entry.subsector && entry.emissionFactorName && entry.denominator && entry.amount && entry.emissionFactorId != null
+        );
         if (!allValid || fuelEntries.length === 0) {
           return; // Validation - all fields required for all entries
+        }
+        // Persist first fuel entry to calculation answer with emission_factor_id (if we have a question for this step)
+        const firstEntry = fuelEntries[0];
+        if (calculationId && firstEntry.emissionFactorId != null && questionsFromApi?.length) {
+          const questionId = questionsFromApi[0].id;
+          await setAnswer(questionId, firstEntry.amount, firstEntry.emissionFactorId);
         }
         // Navigate to anodes step
         const slug = categoryToSlug(category);
@@ -1082,6 +1295,19 @@ const NewCalculation: React.FC = () => {
         )}
 
         {step === 2 && category === 'Aluminium' && (
+          stepCode ? (
+            <DynamicQuestionStep
+              questions={questionsFromApi}
+              loading={questionsLoading}
+              error={questionsError}
+              getAnswer={getAnswerForStep}
+              setAnswer={setAnswer}
+              onOptionSelect={handleOptionSelect}
+              onValueChange={handleValueChange}
+              onBack={handleBack}
+              onNext={handleNext}
+            />
+          ) : (
           <>
             <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
               Šta uvoznik/importer prijavljuje? (koji CBAM proizvod)
@@ -1114,27 +1340,13 @@ const NewCalculation: React.FC = () => {
               </Grid>
               <Grid size={12}>
                 <Box display="flex" justifyContent="space-between" sx={{ mt: 2 }}>
-                  <Button 
-                    variant="outlined" 
-                    size="large" 
-                    startIcon={<ArrowBack />}
-                    onClick={handleBack}
-                  >
-                    Back
-                  </Button>
-                  <Button 
-                    variant="contained" 
-                    size="large" 
-                    endIcon={<ArrowForward />}
-                    onClick={handleNext}
-                    disabled={!aluminumProductType}
-                  >
-                    Next
-                  </Button>
+                  <Button variant="outlined" size="large" startIcon={<ArrowBack />} onClick={handleBack}>Back</Button>
+                  <Button variant="contained" size="large" endIcon={<ArrowForward />} onClick={handleNext} disabled={!aluminumProductType}>Next</Button>
                 </Box>
               </Grid>
             </Grid>
           </>
+          )
         )}
 
         {step === 2 && category !== 'Aluminium' && (
@@ -1176,210 +1388,121 @@ const NewCalculation: React.FC = () => {
         )}
 
         {step === 3 && category === 'Aluminium' && aluminumProductType === 'unwrought' && (
+          stepCode ? (
+            <DynamicQuestionStep
+              questions={questionsFromApi}
+              loading={questionsLoading}
+              error={questionsError}
+              getAnswer={getAnswerForStep}
+              setAnswer={setAnswer}
+              onOptionSelect={handleOptionSelect}
+              onValueChange={handleValueChange}
+              onBack={handleBack}
+              onNext={handleNext}
+            />
+          ) : (
           <>
-            <Typography variant="h5" component="h2" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>
-              UNWROUGHT ALUMINIUM (jednostavan proizvod)
-            </Typography>
-            <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
-              Kako je proizveden taj unwrought aluminij (većina emisija se tu dešava)?
-            </Typography>
+            <Typography variant="h5" component="h2" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>UNWROUGHT ALUMINIUM (jednostavan proizvod)</Typography>
+            <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>Kako je proizveden taj unwrought aluminij (većina emisija se tu dešava)?</Typography>
             <Grid container spacing={3}>
               <Grid size={12}>
                 <FormControl component="fieldset" fullWidth>
-                  <FormLabel component="legend" sx={{ mb: 2, fontWeight: 500 }}>
-                    Odaberite jednu opciju:
-                  </FormLabel>
-                  <RadioGroup
-                    value={productionProcess}
-                    onChange={(e) => {
-                      setProductionProcess(e.target.value);
-                    }}
-                  >
-                    <FormControlLabel
-                      value="primary"
-                      control={<Radio />}
-                      label="Primarni aluminij (elektroliza alumine)"
-                      sx={{ mb: 2 }}
-                    />
-                    <FormControlLabel
-                      value="secondary"
-                      control={<Radio />}
-                      label="Sekundarni aluminij (topenje/reciklaža otpada/scrap)"
-                      sx={{ mb: 2 }}
-                    />
-                    <FormControlLabel
-                      value="unknown"
-                      control={<Radio />}
-                      label="Ne znam / miješano"
-                    />
+                  <FormLabel component="legend" sx={{ mb: 2, fontWeight: 500 }}>Odaberite jednu opciju:</FormLabel>
+                  <RadioGroup value={productionProcess} onChange={(e) => setProductionProcess(e.target.value)}>
+                    <FormControlLabel value="primary" control={<Radio />} label="Primarni aluminij (elektroliza alumine)" sx={{ mb: 2 }} />
+                    <FormControlLabel value="secondary" control={<Radio />} label="Sekundarni aluminij (topenje/reciklaža otpada/scrap)" sx={{ mb: 2 }} />
+                    <FormControlLabel value="unknown" control={<Radio />} label="Ne znam / miješano" />
                   </RadioGroup>
                 </FormControl>
               </Grid>
               <Grid size={12}>
                 <Box display="flex" justifyContent="space-between" sx={{ mt: 2 }}>
-                  <Button 
-                    variant="outlined" 
-                    size="large" 
-                    startIcon={<ArrowBack />}
-                    onClick={handleBack}
-                  >
-                    Back
-                  </Button>
-                  <Button 
-                    variant="contained" 
-                    size="large" 
-                    endIcon={<ArrowForward />}
-                    onClick={handleNext}
-                    disabled={!productionProcess}
-                  >
-                    Next
-                  </Button>
+                  <Button variant="outlined" size="large" startIcon={<ArrowBack />} onClick={handleBack}>Back</Button>
+                  <Button variant="contained" size="large" endIcon={<ArrowForward />} onClick={handleNext} disabled={!productionProcess}>Next</Button>
                 </Box>
               </Grid>
             </Grid>
           </>
+          )
         )}
 
         {step === 3 && category === 'Aluminium' && aluminumProductType === 'products' && (
+          stepCode ? (
+            <DynamicQuestionStep
+              questions={questionsFromApi}
+              loading={questionsLoading}
+              error={questionsError}
+              getAnswer={getAnswerForStep}
+              setAnswer={setAnswer}
+              onOptionSelect={handleOptionSelect}
+              onValueChange={handleValueChange}
+              onBack={handleBack}
+              onNext={handleNext}
+            />
+          ) : (
           <>
-            <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
-              Koji tip aluminijskog proizvoda?
-            </Typography>
+            <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>Koji tip aluminijskog proizvoda?</Typography>
             <Grid container spacing={3}>
               <Grid size={12}>
                 <FormControl component="fieldset" fullWidth>
-                  <FormLabel component="legend" sx={{ mb: 2, fontWeight: 500 }}>
-                    Odaberite jednu opciju:
-                  </FormLabel>
-                  <RadioGroup
-                    value={aluminumProductSubtype}
-                    onChange={(e) => {
-                      setAluminumProductSubtype(e.target.value);
-                    }}
-                  >
-                    <FormControlLabel
-                      value="wire"
-                      control={<Radio />}
-                      label="Žica (7605)"
-                      sx={{ mb: 2 }}
-                    />
-                    <FormControlLabel
-                      value="sheets"
-                      control={<Radio />}
-                      label="Limovi (7606)"
-                      sx={{ mb: 2 }}
-                    />
-                    <FormControlLabel
-                      value="foils"
-                      control={<Radio />}
-                      label="Folije (7607)"
-                      sx={{ mb: 2 }}
-                    />
-                    <FormControlLabel
-                      value="profiles"
-                      control={<Radio />}
-                      label="Profili / šine / konstrukcije (7610…)"
-                      sx={{ mb: 2 }}
-                    />
-                    <FormControlLabel
-                      value="tubes"
-                      control={<Radio />}
-                      label="Cijevi / fitinzi (7608, 7609)"
-                      sx={{ mb: 2 }}
-                    />
-                    <FormControlLabel
-                      value="other"
-                      control={<Radio />}
-                      label="Drugi aluminijski artikli (7616)"
-                    />
+                  <FormLabel component="legend" sx={{ mb: 2, fontWeight: 500 }}>Odaberite jednu opciju:</FormLabel>
+                  <RadioGroup value={aluminumProductSubtype} onChange={(e) => setAluminumProductSubtype(e.target.value)}>
+                    <FormControlLabel value="wire" control={<Radio />} label="Žica (7605)" sx={{ mb: 2 }} />
+                    <FormControlLabel value="sheets" control={<Radio />} label="Limovi (7606)" sx={{ mb: 2 }} />
+                    <FormControlLabel value="foils" control={<Radio />} label="Folije (7607)" sx={{ mb: 2 }} />
+                    <FormControlLabel value="profiles" control={<Radio />} label="Profili / šine / konstrukcije (7610…)" sx={{ mb: 2 }} />
+                    <FormControlLabel value="tubes" control={<Radio />} label="Cijevi / fitinzi (7608, 7609)" sx={{ mb: 2 }} />
+                    <FormControlLabel value="other" control={<Radio />} label="Drugi aluminijski artikli (7616)" />
                   </RadioGroup>
                 </FormControl>
               </Grid>
               <Grid size={12}>
                 <Box display="flex" justifyContent="space-between" sx={{ mt: 2 }}>
-                  <Button 
-                    variant="outlined" 
-                    size="large" 
-                    startIcon={<ArrowBack />}
-                    onClick={handleBack}
-                  >
-                    Back
-                  </Button>
-                  <Button 
-                    variant="contained" 
-                    size="large" 
-                    endIcon={<ArrowForward />}
-                    onClick={handleNext}
-                    disabled={!aluminumProductSubtype}
-                  >
-                    Next
-                  </Button>
+                  <Button variant="outlined" size="large" startIcon={<ArrowBack />} onClick={handleBack}>Back</Button>
+                  <Button variant="contained" size="large" endIcon={<ArrowForward />} onClick={handleNext} disabled={!aluminumProductSubtype}>Next</Button>
                 </Box>
               </Grid>
             </Grid>
           </>
+          )
         )}
 
         {step === 4 && category === 'Aluminium' && aluminumProductType === 'unwrought' && (
+          stepCode ? (
+            <DynamicQuestionStep
+              questions={questionsFromApi}
+              loading={questionsLoading}
+              error={questionsError}
+              getAnswer={getAnswerForStep}
+              setAnswer={setAnswer}
+              onOptionSelect={handleOptionSelect}
+              onValueChange={handleValueChange}
+              onBack={handleBack}
+              onNext={handleNext}
+            />
+          ) : (
           <>
-            <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
-              Kakve podatke korisnik ima?
-            </Typography>
+            <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>Kakve podatke korisnik ima?</Typography>
             <Grid container spacing={3}>
               <Grid size={12}>
                 <FormControl component="fieldset" fullWidth>
-                  <FormLabel component="legend" sx={{ mb: 2, fontWeight: 500 }}>
-                    Odaberite jednu opciju:
-                  </FormLabel>
-                  <RadioGroup
-                    value={dataQualityLevel}
-                    onChange={(e) => {
-                      setDataQualityLevel(e.target.value);
-                    }}
-                  >
-                    <FormControlLabel
-                      value="real-data"
-                      control={<Radio />}
-                      label="Imam stvarne podatke o gorivima, anoda, električnoj energiji itd."
-                      sx={{ mb: 2 }}
-                    />
-                    <FormControlLabel
-                      value="calculated-emissions"
-                      control={<Radio />}
-                      label="Nemam detalje, ali imam već izračunate emisije (npr. iz lokalnog ETS-a ili interne MRV šeme)"
-                      sx={{ mb: 2 }}
-                    />
-                    <FormControlLabel
-                      value="default-values"
-                      control={<Radio />}
-                      label="Nemam ništa – trebam koristiti default vrijednosti"
-                    />
+                  <FormLabel component="legend" sx={{ mb: 2, fontWeight: 500 }}>Odaberite jednu opciju:</FormLabel>
+                  <RadioGroup value={dataQualityLevel} onChange={(e) => setDataQualityLevel(e.target.value)}>
+                    <FormControlLabel value="real-data" control={<Radio />} label="Imam stvarne podatke o gorivima, anoda, električnoj energiji itd." sx={{ mb: 2 }} />
+                    <FormControlLabel value="calculated-emissions" control={<Radio />} label="Nemam detalje, ali imam već izračunate emisije (npr. iz lokalnog ETS-a ili interne MRV šeme)" sx={{ mb: 2 }} />
+                    <FormControlLabel value="default-values" control={<Radio />} label="Nemam ništa – trebam koristiti default vrijednosti" />
                   </RadioGroup>
                 </FormControl>
               </Grid>
               <Grid size={12}>
                 <Box display="flex" justifyContent="space-between" sx={{ mt: 2 }}>
-                  <Button 
-                    variant="outlined" 
-                    size="large" 
-                    startIcon={<ArrowBack />}
-                    onClick={handleBack}
-                  >
-                    Back
-                  </Button>
-                  <Button 
-                    variant="contained" 
-                    size="large" 
-                    endIcon={<ArrowForward />}
-                    onClick={handleNext}
-                    disabled={!dataQualityLevel}
-                  >
-                    Next
-                  </Button>
+                  <Button variant="outlined" size="large" startIcon={<ArrowBack />} onClick={handleBack}>Back</Button>
+                  <Button variant="contained" size="large" endIcon={<ArrowForward />} onClick={handleNext} disabled={!dataQualityLevel}>Next</Button>
                 </Box>
               </Grid>
             </Grid>
           </>
+          )
         )}
 
         {step === 4 && category === 'Aluminium' && aluminumProductType === 'products' && (
@@ -1481,66 +1604,131 @@ const NewCalculation: React.FC = () => {
                 <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 3, mt: 2 }}>
                   Unos podataka o gorivima
                 </Typography>
-                {fuelEntries.map((entry) => (
-                  <Box key={entry.id} sx={{ mb: 3 }}>
-                    <Grid container spacing={3} alignItems="flex-start">
-                      <Grid size={{ xs: 12, md: 5 }}>
-                        <FormControl fullWidth>
-                          <InputLabel>Vrsta goriva</InputLabel>
-                          <Select
-                            value={entry.fuel}
-                            label="Vrsta goriva"
-                            onChange={(e) => handleFuelChange(entry.id, e.target.value)}
-                          >
-                            {fuelData.map((fuel) => (
-                              <MenuItem key={fuel.name} value={fuel.name}>
-                                {fuel.name}
-                              </MenuItem>
-                            ))}
-                          </Select>
-                        </FormControl>
-                      </Grid>
-                      <Grid size={{ xs: 12, md: 4 }}>
-                        <TextField
-                          fullWidth
-                          label="Količina"
-                          type="number"
-                          value={entry.amount}
-                          onChange={(e) => handleFuelAmountChange(entry.id, e.target.value)}
-                          slotProps={{ htmlInput: { min: 0, step: 'any' } }}
-                        />
-                      </Grid>
-                      <Grid size={{ xs: 12, md: 3 }}>
-                        <FormControl fullWidth disabled={!entry.fuel}>
-                          <InputLabel>Jedinica</InputLabel>
-                          <Select
-                            value={entry.unit}
-                            label="Jedinica"
-                            onChange={(e) => handleFuelUnitChange(entry.id, e.target.value)}
-                          >
-                            {entry.fuel && (
-                              <MenuItem value={getFuelUnit(entry.fuel)}>
-                                {getFuelUnit(entry.fuel)}
-                              </MenuItem>
-                            )}
-                          </Select>
-                        </FormControl>
-                      </Grid>
-                      {entry.fuel && entry.unit && entry.amount && (
-                        <Grid size={12}>
-                          <Paper elevation={1} sx={{ p: 2, mt: 1, backgroundColor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
-                            <Typography variant="body2" color="text.secondary">
-                              <strong>Emisijski faktor:</strong> {getFuelEmissionFactor(entry.fuel)} kg CO₂e / {entry.unit}
-                            </Typography>
-                            <Typography variant="body1" sx={{ mt: 1, fontWeight: 600 }}>
-                              <strong>Izračunate emisije:</strong> {(Number.parseFloat(entry.amount) * getFuelEmissionFactor(entry.fuel)).toFixed(2)} kg CO₂e
-                            </Typography>
-                          </Paper>
+                {fuelLookupError && (
+                  <Typography color="error" sx={{ mb: 2 }}>{fuelLookupError}</Typography>
+                )}
+                {fuelEntries.map((entry) => {
+                  const subsectorKey = entry.sector ? `${entry.sector}` : '';
+                  const subsubsectorKey = entry.sector && entry.subsector ? `${entry.sector}|${entry.subsector}` : '';
+                  const namesKey = entry.sector && entry.subsector ? `${entry.sector}|${entry.subsector}|${entry.subsubsector}` : '';
+                  const denominatorsKey = entry.sector && entry.subsector && entry.emissionFactorName ? `${entry.sector}|${entry.subsector}|${entry.subsubsector}|${entry.emissionFactorName}` : '';
+                  const subsectorOptions = subsectorKey ? (subsectorsBySector[subsectorKey] ?? []) : [];
+                  const subsubsectorOptions = subsubsectorKey ? (subsubsectorsByKey[subsubsectorKey] ?? []) : [];
+                  const nameOptions = namesKey ? (emissionFactorNamesByKey[namesKey] ?? []) : [];
+                  const denominatorOptions = denominatorsKey ? (denominatorsByKey[denominatorsKey] ?? []) : [];
+                  return (
+                    <Box key={entry.id} sx={{ mb: 3 }}>
+                      <Grid container spacing={2} alignItems="flex-start">
+                        <Grid size={{ xs: 12, md: 4 }}>
+                          <FormControl fullWidth size="small">
+                            <InputLabel>Sector (Vrsta)</InputLabel>
+                            <Select
+                              value={entry.sector}
+                              label="Sector (Vrsta)"
+                              onChange={(e) => handleFuelSectorChange(entry.id, e.target.value)}
+                              disabled={fuelLookupLoading}
+                            >
+                              {fuelSectors.map((s) => (
+                                <MenuItem key={s} value={s}>{s}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
                         </Grid>
-                      )}
-                    </Grid>
-                  </Box>
-                ))}
+                        <Grid size={{ xs: 12, md: 4 }}>
+                          <FormControl fullWidth size="small" disabled={!entry.sector}>
+                            <InputLabel>Subsector</InputLabel>
+                            <Select
+                              value={entry.subsector}
+                              label="Subsector"
+                              onChange={(e) => handleFuelSubsectorChange(entry.id, e.target.value)}
+                            >
+                              {subsectorOptions.map((s) => (
+                                <MenuItem key={s} value={s}>{s}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        <Grid size={{ xs: 12, md: 4 }}>
+                          <FormControl fullWidth size="small" disabled={!entry.subsector}>
+                            <InputLabel>Subsubsector</InputLabel>
+                            <Select
+                              value={entry.subsubsector}
+                              label="Subsubsector"
+                              onChange={(e) => handleFuelSubsubsectorChange(entry.id, e.target.value)}
+                            >
+                              {subsubsectorOptions.map((s) => (
+                                <MenuItem key={s} value={s}>{s}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        <Grid size={{ xs: 12, md: 4 }}>
+                          <FormControl fullWidth size="small" disabled={!entry.subsector}>
+                            <InputLabel>Emission factor name</InputLabel>
+                            <Select
+                              value={entry.emissionFactorName}
+                              label="Emission factor name"
+                              onChange={(e) => handleFuelEmissionFactorNameChange(entry.id, e.target.value)}
+                            >
+                              {nameOptions.map((n) => (
+                                <MenuItem key={n} value={n}>{n}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        <Grid size={{ xs: 12, md: 4 }}>
+                          <FormControl fullWidth size="small" disabled={!entry.emissionFactorName}>
+                            <InputLabel>Jedinica (Denominator)</InputLabel>
+                            <Select
+                              value={entry.denominator}
+                              label="Jedinica (Denominator)"
+                              onChange={(e) => handleFuelDenominatorChange(entry.id, e.target.value)}
+                            >
+                              {denominatorOptions.map((d) => (
+                                <MenuItem key={d} value={d}>{d}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        <Grid size={{ xs: 12, md: 4 }}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            label="Količina"
+                            type="number"
+                            value={entry.amount}
+                            onChange={(e) => handleFuelAmountChange(entry.id, e.target.value)}
+                            slotProps={{ htmlInput: { min: 0, step: 'any' } }}
+                          />
+                        </Grid>
+                        {entry.emissionFactorId != null && entry.amount && (
+                          <Grid size={12}>
+                            <Paper elevation={2} sx={{ p: 2.5, mt: 2, backgroundColor: 'primary.50', border: '2px solid', borderColor: 'primary.300' }}>
+                              <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                                Emission factor ID: {entry.emissionFactorId}
+                              </Typography>
+                              <Typography variant="body1" sx={{ fontWeight: 500, mb: 1 }}>
+                                <strong>Formula:</strong>{' '}
+                                {entry.emissionFactorValue != null
+                                  ? `${entry.emissionFactorValue} × Količina = `
+                                  : 'value × Količina = '}
+                                {entry.emissionFactorValue != null
+                                  ? `${(Number(entry.emissionFactorValue) * Number(entry.amount)).toFixed(2)} kg CO₂e / ${entry.denominator}`
+                                  : '? (value not available)'}
+                              </Typography>
+                              {entry.emissionFactorValue != null && (
+                                <Typography variant="h6" sx={{ fontWeight: 700, color: 'primary.dark' }}>
+                                  <strong>Izračunate emisije:</strong>{' '}
+                                  {(Number(entry.emissionFactorValue) * Number(entry.amount)).toFixed(2)} kg CO₂e
+                                </Typography>
+                              )}
+                            </Paper>
+                          </Grid>
+                        )}
+                      </Grid>
+                    </Box>
+                  );
+                })}
                 <Box sx={{ mt: 2, mb: 3 }}>
                   <Button
                     variant="outlined"
@@ -1551,21 +1739,11 @@ const NewCalculation: React.FC = () => {
                     Add another fuel
                   </Button>
                 </Box>
-                {fuelEntries.some(entry => entry.fuel && entry.unit && entry.amount) && (
+                {fuelEntries.some(entry => entry.emissionFactorId != null && entry.amount) && (
                   <Box sx={{ mt: 2 }}>
                     <Paper elevation={1} sx={{ p: 2, backgroundColor: 'success.50', border: '1px solid', borderColor: 'success.200' }}>
                       <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
-                        Ukupne izračunate emisije:
-                      </Typography>
-                      <Typography variant="body1" sx={{ fontWeight: 600, fontSize: '1.2rem' }}>
-                        {fuelEntries
-                          .filter(entry => entry.fuel && entry.unit && entry.amount)
-                          .reduce((total, entry) => {
-                            const amount = Number.parseFloat(entry.amount) || 0;
-                            const factor = getFuelEmissionFactor(entry.fuel);
-                            return total + (amount * factor);
-                          }, 0)
-                          .toFixed(2)} kg CO₂e
+                        Selected fuel entries saved with emission factor ID when you click Next.
                       </Typography>
                     </Paper>
                   </Box>
@@ -1610,184 +1788,125 @@ const NewCalculation: React.FC = () => {
         )}
 
         {step === 6 && (
+          stepCode ? (
+            <>
+              <DynamicQuestionStep
+                questions={questionsFromApi}
+                loading={questionsLoading}
+                error={questionsError}
+                getAnswer={getAnswerForStep}
+                setAnswer={setAnswer}
+                onOptionSelect={handleOptionSelect}
+                onValueChange={handleValueChange}
+                onBack={handleBack}
+                onNext={handleNext}
+              />
+              {anodesQuantity && (
+                <Paper elevation={1} sx={{ p: 2, mt: 2, backgroundColor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    <strong>Izračunate emisije:</strong>{' '}
+                    {(() => {
+                      const amount = Number.parseFloat(anodesQuantity) || 0;
+                      if (hasCarbonPercentage === 'yes' && carbonPercentage) {
+                        const percent = Number.parseFloat(carbonPercentage) || 0;
+                        return (amount * (percent / 100) * (44 / 12)).toFixed(2);
+                      } else if (hasCarbonPercentage === 'no') {
+                        return (amount * (44 / 12)).toFixed(2);
+                      }
+                      return '0.00';
+                    })()}{' '}
+                    tonnes kg CO₂e
+                  </Typography>
+                </Paper>
+              )}
+            </>
+          ) : (
           <>
-            {/* Anodes Input Form */}
-            <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>
-              Unos podataka o anodama
-            </Typography>
+            <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>Unos podataka o anodama</Typography>
             <Grid container spacing={3}>
-              <Grid size={12}>
-                <Typography variant="body1" sx={{ mb: 2, fontWeight: 500 }}>
-                  Kolika je količina potrošenih anoda?
-                </Typography>
-              </Grid>
+              <Grid size={12}><Typography variant="body1" sx={{ mb: 2, fontWeight: 500 }}>Kolika je količina potrošenih anoda?</Typography></Grid>
               <Grid size={{ xs: 12, md: 8 }}>
-                <TextField
-                  fullWidth
-                  label="Količina anoda"
-                  type="number"
-                  value={anodesQuantity}
-                  onChange={(e) => setAnodesQuantity(e.target.value)}
-                  slotProps={{ htmlInput: { min: 0, step: 'any' } }}
-                  helperText="Unesite količinu u tonama (tonnes)"
-                />
+                <TextField fullWidth label="Količina anoda" type="number" value={anodesQuantity} onChange={(e) => setAnodesQuantity(e.target.value)} slotProps={{ htmlInput: { min: 0, step: 'any' } }} helperText="Unesite količinu u tonama (tonnes)" />
               </Grid>
               <Grid size={{ xs: 12, md: 4 }}>
-                <FormControl fullWidth>
-                  <InputLabel>Jedinica</InputLabel>
-                  <Select
-                    value="tonnes"
-                    label="Jedinica"
-                    disabled
-                  >
-                    <MenuItem value="tonnes">tonnes</MenuItem>
-                  </Select>
-                </FormControl>
+                <FormControl fullWidth><InputLabel>Jedinica</InputLabel><Select value="tonnes" label="Jedinica" disabled><MenuItem value="tonnes">tonnes</MenuItem></Select></FormControl>
               </Grid>
               <Grid size={12} sx={{ mt: 3 }}>
-                <Typography variant="body1" sx={{ mb: 2, fontWeight: 500 }}>
-                  Da li imaš podatak o procentu (%) ugljika u anodama?
-                </Typography>
+                <Typography variant="body1" sx={{ mb: 2, fontWeight: 500 }}>Da li imaš podatak o procentu (%) ugljika u anodama?</Typography>
                 <FormControl component="fieldset" fullWidth>
-                  <RadioGroup
-                    value={hasCarbonPercentage}
-                    onChange={(e) => setHasCarbonPercentage(e.target.value)}
-                    row
-                  >
-                    <FormControlLabel
-                      value="yes"
-                      control={<Radio />}
-                      label="Da"
-                      sx={{ mr: 3 }}
-                    />
-                    <FormControlLabel
-                      value="no"
-                      control={<Radio />}
-                      label="Ne"
-                    />
+                  <RadioGroup value={hasCarbonPercentage} onChange={(e) => setHasCarbonPercentage(e.target.value)} row>
+                    <FormControlLabel value="yes" control={<Radio />} label="Da" sx={{ mr: 3 }} />
+                    <FormControlLabel value="no" control={<Radio />} label="Ne" />
                   </RadioGroup>
                 </FormControl>
               </Grid>
               {hasCarbonPercentage === 'yes' && (
                 <Grid size={{ xs: 12, md: 6 }}>
-                  <TextField
-                    fullWidth
-                    label="Procenat ugljika (%)"
-                    type="number"
-                    value={carbonPercentage}
-                    onChange={(e) => setCarbonPercentage(e.target.value)}
-                    slotProps={{ htmlInput: { min: 0, max: 100, step: 'any' } }}
-                    helperText="Unesite procenat ugljika u anodama"
-                  />
+                  <TextField fullWidth label="Procenat ugljika (%)" type="number" value={carbonPercentage} onChange={(e) => setCarbonPercentage(e.target.value)} slotProps={{ htmlInput: { min: 0, max: 100, step: 'any' } }} helperText="Unesite procenat ugljika u anodama" />
                 </Grid>
               )}
               {anodesQuantity && (
                 <Grid size={12} sx={{ mt: 2 }}>
                   <Paper elevation={1} sx={{ p: 2, backgroundColor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
                     <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                      <strong>Izračunate emisije:</strong>{' '}
-                      {(() => {
-                        const amount = Number.parseFloat(anodesQuantity) || 0;
-                        if (hasCarbonPercentage === 'yes' && carbonPercentage) {
-                          const percent = Number.parseFloat(carbonPercentage) || 0;
-                          return (amount * (percent / 100) * (44 / 12)).toFixed(2);
-                        } else if (hasCarbonPercentage === 'no') {
-                          return (amount * (44 / 12)).toFixed(2);
-                        }
-                        return '0.00';
-                      })()}{' '}
-                      tonnes kg CO₂e
+                      <strong>Izračunate emisije:</strong> {(() => { const amount = Number.parseFloat(anodesQuantity) || 0; if (hasCarbonPercentage === 'yes' && carbonPercentage) { const percent = Number.parseFloat(carbonPercentage) || 0; return (amount * (percent / 100) * (44 / 12)).toFixed(2); } else if (hasCarbonPercentage === 'no') { return (amount * (44 / 12)).toFixed(2); } return '0.00'; })()} tonnes kg CO₂e
                     </Typography>
                   </Paper>
                 </Grid>
               )}
-              <Grid size={12}>
-                <Box display="flex" justifyContent="space-between" sx={{ mt: 3 }}>
-                  <Button 
-                    variant="outlined" 
-                    size="large" 
-                    startIcon={<ArrowBack />}
-                    onClick={handleBack}
-                  >
-                    Back
-                  </Button>
-                  <Button 
-                    variant="contained" 
-                    size="large" 
-                    endIcon={<ArrowForward />}
-                    onClick={handleNext}
-                  >
-                    Next
-                  </Button>
-                </Box>
-              </Grid>
+              <Grid size={12}><Box display="flex" justifyContent="space-between" sx={{ mt: 3 }}><Button variant="outlined" size="large" startIcon={<ArrowBack />} onClick={handleBack}>Back</Button><Button variant="contained" size="large" endIcon={<ArrowForward />} onClick={handleNext}>Next</Button></Box></Grid>
             </Grid>
           </>
+          )
         )}
 
         {step === 7 && (
+          stepCode ? (
+            <DynamicQuestionStep
+              questions={questionsFromApi}
+              loading={questionsLoading}
+              error={questionsError}
+              getAnswer={getAnswerForStep}
+              setAnswer={setAnswer}
+              onOptionSelect={handleOptionSelect}
+              onValueChange={handleValueChange}
+              onBack={handleBack}
+              onNext={handleNext}
+            />
+          ) : (
           <>
-            <Typography variant="body1" sx={{ mb: 3 }}>
-              Kako bismo odabrali odgovarajuću CBAM-kompatibilnu metodu za izračun PFC emisija iz primarne proizvodnje aluminija, trebamo potvrditi koje podatke imate dostupne iz vašeg sistema upravljanja procesom:
-            </Typography>
+            <Typography variant="body1" sx={{ mb: 3 }}>Kako bismo odabrali odgovarajuću CBAM-kompatibilnu metodu za izračun PFC emisija...</Typography>
             <Grid container spacing={3}>
               <Grid size={12}>
                 <FormControl component="fieldset" fullWidth>
-                  <RadioGroup
-                    value={pfcMethod}
-                    onChange={(e) => setPfcMethod(e.target.value)}
-                  >
-                    <FormControlLabel
-                      value="anode-effect"
-                      control={<Radio />}
-                      label={
-                        <Typography variant="body1">
-                          <strong>a)</strong> Frekvencija anode effecta (broj anode effecta po ćeliji po danu – number of anode effects / cell-day) i prosječno trajanje anode effecta (u minutama po pojavi – anode effect minutes / occurrence).
-                        </Typography>
-                      }
-                      sx={{ mb: 2, alignItems: 'flex-start' }}
-                    />
-                    <FormControlLabel
-                      value="aeo-ce"
-                      control={<Radio />}
-                      label={
-                        <Typography variant="body1">
-                          <strong>b)</strong> AEO – Anode Effect Overvoltage po ćeliji (izražen u mV; predstavlja vremenski integrisani višak napona iznad ciljnog napona) i CE – Current Efficiency (prosječna strujna efikasnost proizvodnje aluminija, u %).
-                        </Typography>
-                      }
-                      sx={{ alignItems: 'flex-start' }}
-                    />
+                  <RadioGroup value={pfcMethod} onChange={(e) => setPfcMethod(e.target.value)}>
+                    <FormControlLabel value="anode-effect" control={<Radio />} label={<Typography variant="body1"><strong>a)</strong> Frekvencija anode effecta...</Typography>} sx={{ mb: 2, alignItems: 'flex-start' }} />
+                    <FormControlLabel value="aeo-ce" control={<Radio />} label={<Typography variant="body1"><strong>b)</strong> AEO – Anode Effect Overvoltage...</Typography>} sx={{ alignItems: 'flex-start' }} />
                   </RadioGroup>
                 </FormControl>
               </Grid>
-              <Grid size={12}>
-                <Box display="flex" justifyContent="space-between" sx={{ mt: 3 }}>
-                  <Button 
-                    variant="outlined" 
-                    size="large" 
-                    startIcon={<ArrowBack />}
-                    onClick={handleBack}
-                  >
-                    Back
-                  </Button>
-                  <Button 
-                    variant="contained" 
-                    size="large" 
-                    endIcon={<ArrowForward />}
-                    onClick={handleNext}
-                  >
-                    Next
-                  </Button>
-                </Box>
-              </Grid>
+              <Grid size={12}><Box display="flex" justifyContent="space-between" sx={{ mt: 3 }}><Button variant="outlined" size="large" startIcon={<ArrowBack />} onClick={handleBack}>Back</Button><Button variant="contained" size="large" endIcon={<ArrowForward />} onClick={handleNext}>Next</Button></Box></Grid>
             </Grid>
           </>
+          )
         )}
 
         {step === 8 && (
+          stepCode ? (
+            <DynamicQuestionStep
+              questions={questionsFromApi}
+              loading={questionsLoading}
+              error={questionsError}
+              getAnswer={getAnswerForStep}
+              setAnswer={setAnswer}
+              onOptionSelect={handleOptionSelect}
+              onValueChange={handleValueChange}
+              onBack={handleBack}
+              onNext={handleNext}
+            />
+          ) : (
           <>
             {location.pathname.endsWith('/overvoltage') ? (
-              // Overvoltage method (option b) form
               <Grid container spacing={3}>
                 <Grid size={12}>
                   <Typography variant="body1" sx={{ mb: 2, fontWeight: 500 }}>
@@ -2088,62 +2207,39 @@ const NewCalculation: React.FC = () => {
               </Grid>
             )}
           </>
+          )
         )}
 
         {step === 9 && !location.pathname.endsWith('/grid') && !location.pathname.endsWith('/self-power') && !location.pathname.endsWith('/ppa') && (
+          stepCode ? (
+            <DynamicQuestionStep
+              questions={questionsFromApi}
+              loading={questionsLoading}
+              error={questionsError}
+              getAnswer={getAnswerForStep}
+              setAnswer={setAnswer}
+              onOptionSelect={handleOptionSelect}
+              onValueChange={handleValueChange}
+              onBack={handleBack}
+              onNext={handleNext}
+            />
+          ) : (
           <>
             <Grid container spacing={3}>
               <Grid size={12}>
-                <Typography variant="body1" sx={{ mb: 2, fontWeight: 500 }}>
-                  Pitanje: Odakle dolazi električna energija?
-                </Typography>
+                <Typography variant="body1" sx={{ mb: 2, fontWeight: 500 }}>Pitanje: Odakle dolazi električna energija?</Typography>
                 <FormControl component="fieldset" fullWidth>
-                  <RadioGroup
-                    value={electricitySource}
-                    onChange={(e) => setElectricitySource(e.target.value)}
-                  >
-                    <FormControlLabel
-                      value="grid"
-                      control={<Radio />}
-                      label="Iz mreže"
-                      sx={{ mb: 1 }}
-                    />
-                    <FormControlLabel
-                      value="self-power"
-                      control={<Radio />}
-                      label="Sopstvena elektrana u okviru postrojenja"
-                      sx={{ mb: 1 }}
-                    />
-                    <FormControlLabel
-                      value="ppa"
-                      control={<Radio />}
-                      label="Poseban PPA (Power Purchase Agreement)"
-                    />
+                  <RadioGroup value={electricitySource} onChange={(e) => setElectricitySource(e.target.value)}>
+                    <FormControlLabel value="grid" control={<Radio />} label="Iz mreže" sx={{ mb: 1 }} />
+                    <FormControlLabel value="self-power" control={<Radio />} label="Sopstvena elektrana u okviru postrojenja" sx={{ mb: 1 }} />
+                    <FormControlLabel value="ppa" control={<Radio />} label="Poseban PPA (Power Purchase Agreement)" />
                   </RadioGroup>
                 </FormControl>
               </Grid>
-              <Grid size={12}>
-                <Box display="flex" justifyContent="space-between" sx={{ mt: 3 }}>
-                  <Button 
-                    variant="outlined" 
-                    size="large" 
-                    startIcon={<ArrowBack />}
-                    onClick={handleBack}
-                  >
-                    Back
-                  </Button>
-                  <Button 
-                    variant="contained" 
-                    size="large" 
-                    endIcon={<ArrowForward />}
-                    onClick={handleNext}
-                  >
-                    Next
-                  </Button>
-                </Box>
-              </Grid>
+              <Grid size={12}><Box display="flex" justifyContent="space-between" sx={{ mt: 3 }}><Button variant="outlined" size="large" startIcon={<ArrowBack />} onClick={handleBack}>Back</Button><Button variant="contained" size="large" endIcon={<ArrowForward />} onClick={handleNext}>Next</Button></Box></Grid>
             </Grid>
           </>
+          )
         )}
 
         {step === 10 && location.pathname.endsWith('/grid') && (
