@@ -59,6 +59,25 @@ export async function upsertCalculationAnswer(payload: {
 }
 
 /**
+ * DELETE /calculation-answers/by-calculation-and-questions
+ * Body: { calculationId: number, questionIds: number[] }
+ * Deletes all calculation_answer rows for the given calculation and question IDs (e.g. when user presses Back).
+ */
+export async function deleteCalculationAnswersByCalculationAndQuestions(
+  calculationId: number,
+  questionIds: number[]
+): Promise<{ deleted: number }> {
+  const result = await apiRequest<{ success: boolean; deleted?: number; message?: string }>(
+    '/calculation-answers/by-calculation-and-questions',
+    { method: 'DELETE', body: JSON.stringify({ calculationId, questionIds }) }
+  );
+  if (result === null || !result.data.success) {
+    throw new Error(result?.data?.message ?? 'Failed to delete calculation answers');
+  }
+  return { deleted: result.data.deleted ?? 0 };
+}
+
+/**
  * GET /calculation-answers/by-calculation-question?calculationId=...&questionId=...
  */
 export async function getCalculationAnswerByCalculationAndQuestion(

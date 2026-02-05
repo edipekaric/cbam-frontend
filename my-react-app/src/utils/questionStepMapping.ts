@@ -22,8 +22,8 @@ export function getStepCode(params: {
     case 5:
       return 'FUEL_INPUT';
     case 6:
-      // Anode page: questions live under ALU_ANODES_INPUT (QTY, UNIT, HAS_CARBON_PERCENT) and ALU_ANODES (ALU_ANODE_CARBON_PERCENT); fetch both and merge
-      return ['ALU_ANODES_INPUT', 'ALU_ANODES'];
+      // Anode page: first anode type (ALU_ANODE_TYPE), then ALU_ANODES_INPUT (QTY, UNIT, HAS_CARBON_PERCENT) and ALU_ANODES (ALU_ANODE_CARBON_PERCENT)
+      return ['ALU_ANODE_TYPE', 'ALU_ANODES_INPUT', 'ALU_ANODES'];
     case 7:
       return 'ALU_PFC_METHOD';
     case 8:
@@ -46,7 +46,7 @@ export function optionCodeToFrontendState(questionCode: string, optionCode: stri
     case 'ALU_UNWROUGHT_PRODUCTION_METHOD':
       if (optionCode === 'PRIMARY') return 'primary';
       if (optionCode === 'SECONDARY') return 'secondary';
-      if (optionCode === 'UNKNOWN_MIXED') return 'unknown';
+      if (optionCode === 'BOTH') return 'both';
       return lower;
     case 'ALU_PRODUCT_TYPE':
       if (optionCode === 'WIRE_7605') return 'wire';
@@ -59,7 +59,6 @@ export function optionCodeToFrontendState(questionCode: string, optionCode: stri
     case 'ALU_DATA_AVAILABILITY':
       if (optionCode === 'HAS_REAL_INPUTS') return 'real-data';
       if (optionCode === 'HAS_EMISSIONS_ONLY') return 'calculated-emissions';
-      if (optionCode === 'NO_DATA_USE_DEFAULTS') return 'default-values';
       return lower;
     case 'ALU_PFC_METHOD':
       if (optionCode === 'METHOD_A_AE_FREQ_DURATION') return 'anode-effect';
@@ -76,6 +75,10 @@ export function optionCodeToFrontendState(questionCode: string, optionCode: stri
       if (optionCode === 'YES') return 'yes';
       if (optionCode === 'NO') return 'no';
       return lower;
+    case 'ALU_ANODE_TYPE':
+      if (optionCode === 'PRE_BAKED') return 'pre-baked';
+      if (optionCode === 'SODERBERG') return 'soderberg';
+      return lower;
     default:
       return lower;
   }
@@ -91,7 +94,7 @@ export function frontendStateToOptionCode(questionCode: string, frontendValue: s
     case 'ALU_UNWROUGHT_PRODUCTION_METHOD':
       if (frontendValue === 'primary') return 'PRIMARY';
       if (frontendValue === 'secondary') return 'SECONDARY';
-      if (frontendValue === 'unknown') return 'UNKNOWN_MIXED';
+      if (frontendValue === 'both') return 'BOTH';
       return frontendValue.toUpperCase();
     case 'ALU_PRODUCT_TYPE':
       if (frontendValue === 'wire') return 'WIRE_7605';
@@ -104,7 +107,6 @@ export function frontendStateToOptionCode(questionCode: string, frontendValue: s
     case 'ALU_DATA_AVAILABILITY':
       if (frontendValue === 'real-data') return 'HAS_REAL_INPUTS';
       if (frontendValue === 'calculated-emissions') return 'HAS_EMISSIONS_ONLY';
-      if (frontendValue === 'default-values') return 'NO_DATA_USE_DEFAULTS';
       return frontendValue.toUpperCase();
     case 'ALU_PFC_METHOD':
       if (frontendValue === 'anode-effect') return 'METHOD_A_AE_FREQ_DURATION';
@@ -120,6 +122,10 @@ export function frontendStateToOptionCode(questionCode: string, frontendValue: s
     case 'ALU_HAS_CARBON_PERCENT':
       if (frontendValue === 'yes') return 'YES';
       if (frontendValue === 'no') return 'NO';
+      return frontendValue.toUpperCase();
+    case 'ALU_ANODE_TYPE':
+      if (frontendValue === 'pre-baked') return 'PRE_BAKED';
+      if (frontendValue === 'soderberg') return 'SODERBERG';
       return frontendValue.toUpperCase();
     default:
       return frontendValue.toUpperCase();

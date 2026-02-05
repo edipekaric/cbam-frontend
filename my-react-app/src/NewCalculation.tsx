@@ -133,7 +133,7 @@ const NewCalculation: React.FC = () => {
     [step, category, aluminumProductType, location.pathname]
   );
   const { questions: questionsFromApi, loading: questionsLoading, error: questionsError } = useQuestionsByStep(stepCode);
-  const { answers, getAnswer, setAnswer } = useCalculationAnswers(calculationId);
+  const { answers, getAnswer, setAnswer, saveAnswer, deleteAnswersForQuestions } = useCalculationAnswers(calculationId);
 
   // Hydrate local state from saved calculation answers (once per calculation load)
   const [questionIdToCode, setQuestionIdToCode] = useState<Record<number, string>>({});
@@ -587,7 +587,7 @@ const NewCalculation: React.FC = () => {
   const processToSlug = (process: string) => {
     if (process === 'primary') return 'primary';
     if (process === 'secondary') return 'secundary';
-    if (process === 'unknown') return 'dkn';
+    if (process === 'both') return 'both';
     return process;
   };
 
@@ -595,7 +595,7 @@ const NewCalculation: React.FC = () => {
   const slugToProcess = (slug: string) => {
     if (slug === 'primary') return 'primary';
     if (slug === 'secundary') return 'secondary';
-    if (slug === 'dkn') return 'unknown';
+    if (slug === 'both' || slug === 'dkn') return 'both';
     return slug;
   };
 
@@ -630,7 +630,6 @@ const NewCalculation: React.FC = () => {
     switch (level) {
       case 'real-data': return 'fuels';
       case 'calculated-emissions': return 'emissions';
-      case 'default-values': return 'nothing';
       default: return level;
     }
   };
@@ -640,7 +639,6 @@ const NewCalculation: React.FC = () => {
     switch (slug) {
       case 'fuels': return 'real-data';
       case 'emissions': return 'calculated-emissions';
-      case 'nothing': return 'default-values';
       default: return slug;
     }
   };
@@ -660,7 +658,7 @@ const NewCalculation: React.FC = () => {
     }
     if (processParam) {
       // Check if it's a production process (for unwrought) or product subtype (for al-products)
-      if (productTypeParam === 'unwrought' && !productionProcess && (processParam === 'primary' || processParam === 'secundary' || processParam === 'dkn')) {
+      if (productTypeParam === 'unwrought' && !productionProcess && (processParam === 'primary' || processParam === 'secundary' || processParam === 'both' || processParam === 'dkn')) {
         setProductionProcess(slugToProcess(processParam));
         setStep(4);
       } else if (productTypeParam === 'al-products' && !aluminumProductSubtype) {
@@ -674,7 +672,7 @@ const NewCalculation: React.FC = () => {
     }
     if (dataLevelParam && productTypeParam === 'unwrought') {
       // Check if it's a valid data level slug
-      const validDataLevels = ['fuels', 'emissions', 'nothing'];
+      const validDataLevels = ['fuels', 'emissions'];
       if (validDataLevels.includes(dataLevelParam) && !dataQualityLevel) {
         setDataQualityLevel(slugToDataLevel(dataLevelParam));
       }
@@ -688,7 +686,7 @@ const NewCalculation: React.FC = () => {
       setStep(10);
       // Ensure dataQualityLevel is set if we have the param
       if (dataLevelParam && productTypeParam === 'unwrought' && !dataQualityLevel) {
-        const validDataLevels = ['fuels', 'emissions', 'nothing'];
+        const validDataLevels = ['fuels', 'emissions'];
         if (validDataLevels.includes(dataLevelParam)) {
           setDataQualityLevel(slugToDataLevel(dataLevelParam));
         }
@@ -718,7 +716,7 @@ const NewCalculation: React.FC = () => {
       setStep(9);
       // Ensure dataQualityLevel is set if we have the param
       if (dataLevelParam && productTypeParam === 'unwrought' && !dataQualityLevel) {
-        const validDataLevels = ['fuels', 'emissions', 'nothing'];
+        const validDataLevels = ['fuels', 'emissions'];
         if (validDataLevels.includes(dataLevelParam)) {
           setDataQualityLevel(slugToDataLevel(dataLevelParam));
         }
@@ -735,7 +733,7 @@ const NewCalculation: React.FC = () => {
       setStep(8);
       // Ensure dataQualityLevel is set if we have the param
       if (dataLevelParam && productTypeParam === 'unwrought' && !dataQualityLevel) {
-        const validDataLevels = ['fuels', 'emissions', 'nothing'];
+        const validDataLevels = ['fuels', 'emissions'];
         if (validDataLevels.includes(dataLevelParam)) {
           setDataQualityLevel(slugToDataLevel(dataLevelParam));
         }
@@ -754,7 +752,7 @@ const NewCalculation: React.FC = () => {
       setStep(7);
       // Ensure dataQualityLevel is set if we have the param
       if (dataLevelParam && productTypeParam === 'unwrought' && !dataQualityLevel) {
-        const validDataLevels = ['fuels', 'emissions', 'nothing'];
+        const validDataLevels = ['fuels', 'emissions'];
         if (validDataLevels.includes(dataLevelParam)) {
           setDataQualityLevel(slugToDataLevel(dataLevelParam));
         }
@@ -775,7 +773,7 @@ const NewCalculation: React.FC = () => {
     }
     // 5. Default to step 5 if we have dataLevelParam but no specific route
     else if (dataLevelParam && productTypeParam === 'unwrought') {
-      const validDataLevels = ['fuels', 'emissions', 'nothing'];
+      const validDataLevels = ['fuels', 'emissions'];
       if (dataQualityLevel || validDataLevels.includes(dataLevelParam)) {
         setStep(5);
       }
@@ -821,6 +819,14 @@ const NewCalculation: React.FC = () => {
   };
 
   const handleNext = async () => {
+    // Persist current step answers to API only when user presses Next (not on every change).
+    // Step 5 (fuel) has its own delete-then-save-all logic below, so skip generic persist for it.
+    if (calculationId != null && questionsFromApi?.length && step !== 5) {
+      for (const q of questionsFromApi) {
+        const value = getAnswer(q.id);
+        if (value != null && value !== '') await saveAnswer(q.id, value);
+      }
+    }
     if (step === 1) {
       if (!category || !productName) {
         return;
@@ -880,8 +886,8 @@ const NewCalculation: React.FC = () => {
         if (!productionProcess) {
           return; // Validation
         }
-        // If "Ne znam / miješano" is selected, treat it as "primarni" internally but keep 'unknown' for URL
-        const finalProcess = productionProcess === 'unknown' ? 'primary' : productionProcess;
+        // If "Oba" is selected, treat it as "primarni" internally but keep 'both' for URL
+        const finalProcess = productionProcess === 'both' ? 'primary' : productionProcess;
         setProductionProcess(finalProcess);
         // Navigate with production process in URL
         const slug = categoryToSlug(category);
@@ -926,11 +932,15 @@ const NewCalculation: React.FC = () => {
         if (!allValid || fuelEntries.length === 0) {
           return; // Validation - all fields required for all entries
         }
-        // Persist first fuel entry to calculation answer with emission_factor_id (if we have a question for this step)
-        const firstEntry = fuelEntries[0];
-        if (calculationId && firstEntry.emissionFactorId != null && questionsFromApi?.length) {
+        // Replace fuel answers: delete all for this step, then insert one row per fuel entry (save on Next).
+        if (calculationId && questionsFromApi?.length) {
           const questionId = questionsFromApi[0].id;
-          await setAnswer(questionId, firstEntry.amount, firstEntry.emissionFactorId);
+          await deleteAnswersForQuestions([questionId]);
+          for (const entry of fuelEntries) {
+            if (entry.emissionFactorId != null) {
+              await saveAnswer(questionId, entry.amount, entry.emissionFactorId);
+            }
+          }
         }
         // Navigate to anodes step
         const slug = categoryToSlug(category);
@@ -941,8 +951,18 @@ const NewCalculation: React.FC = () => {
       }
       setStep(6); // Go to next step
     } else if (step === 6) {
-      // Step 6 is the anodes input form
-      // Navigate to PFC step
+      // Step 6: first anode type question. If Pre-baked -> anodes form (quantity, carbon %). If Söderberg -> skip to PFC.
+      const anodeTypeQuestion = questionsFromApi?.find((q: { code: string }) => q.code === 'ALU_ANODE_TYPE');
+      const anodeTypeAnswer = anodeTypeQuestion != null ? getAnswer(anodeTypeQuestion.id) : '';
+      const isPreBaked = anodeTypeAnswer === 'PRE_BAKED' || anodeTypeAnswer === 'pre-baked';
+      const anodesFormFilled = Boolean(anodesQuantity);
+      if (anodeTypeQuestion && anodeTypeAnswer !== '') {
+        if (isPreBaked && !anodesFormFilled) {
+          // Pre-baked selected but anodes form not filled yet: stay on step 6
+          return;
+        }
+        // Söderberg selected, or Pre-baked with form filled: proceed to PFC
+      }
       if (category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'real-data') {
         const slug = categoryToSlug(category);
         const productTypeSlug = productTypeToSlug(aluminumProductType);
@@ -1071,7 +1091,12 @@ const NewCalculation: React.FC = () => {
     }
   };
 
-  const handleBack = () => {
+  const handleBack = async () => {
+    // On Back: delete answers for the current step so we can re-save when user goes Next again (A -> Back -> B -> Next).
+    if (step >= 2 && calculationId != null && questionsFromApi?.length) {
+      const questionIds = questionsFromApi.map((q) => q.id);
+      await deleteAnswersForQuestions(questionIds);
+    }
     if (step === 10) {
       // Going back from step 10 (grid/self-power/ppa/yes/ppa/no) to step 9 (electricity) or /ppa
       if (category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'real-data') {
@@ -1413,10 +1438,10 @@ const NewCalculation: React.FC = () => {
               <Grid size={12}>
                 <FormControl component="fieldset" fullWidth>
                   <FormLabel component="legend" sx={{ mb: 2, fontWeight: 500 }}>Odaberite jednu opciju:</FormLabel>
-                  <RadioGroup value={productionProcess} onChange={(e) => setProductionProcess(e.target.value)}>
+                  <RadioGroup value={productionProcess} onChange={(e) => { setProductionProcess(e.target.value); if (questionsFromApi?.length) setAnswer(questionsFromApi[0].id, e.target.value); }}>
                     <FormControlLabel value="primary" control={<Radio />} label="Primarni aluminij (elektroliza alumine)" sx={{ mb: 2 }} />
                     <FormControlLabel value="secondary" control={<Radio />} label="Sekundarni aluminij (topenje/reciklaža otpada/scrap)" sx={{ mb: 2 }} />
-                    <FormControlLabel value="unknown" control={<Radio />} label="Ne znam / miješano" />
+                    <FormControlLabel value="both" control={<Radio />} label="Oba" />
                   </RadioGroup>
                 </FormControl>
               </Grid>
@@ -1451,7 +1476,7 @@ const NewCalculation: React.FC = () => {
               <Grid size={12}>
                 <FormControl component="fieldset" fullWidth>
                   <FormLabel component="legend" sx={{ mb: 2, fontWeight: 500 }}>Odaberite jednu opciju:</FormLabel>
-                  <RadioGroup value={aluminumProductSubtype} onChange={(e) => setAluminumProductSubtype(e.target.value)}>
+                  <RadioGroup value={aluminumProductSubtype} onChange={(e) => { setAluminumProductSubtype(e.target.value); if (questionsFromApi?.length) setAnswer(questionsFromApi[0].id, e.target.value); }}>
                     <FormControlLabel value="wire" control={<Radio />} label="Žica (7605)" sx={{ mb: 2 }} />
                     <FormControlLabel value="sheets" control={<Radio />} label="Limovi (7606)" sx={{ mb: 2 }} />
                     <FormControlLabel value="foils" control={<Radio />} label="Folije (7607)" sx={{ mb: 2 }} />
@@ -1492,10 +1517,9 @@ const NewCalculation: React.FC = () => {
               <Grid size={12}>
                 <FormControl component="fieldset" fullWidth>
                   <FormLabel component="legend" sx={{ mb: 2, fontWeight: 500 }}>Odaberite jednu opciju:</FormLabel>
-                  <RadioGroup value={dataQualityLevel} onChange={(e) => setDataQualityLevel(e.target.value)}>
+                  <RadioGroup value={dataQualityLevel} onChange={(e) => { setDataQualityLevel(e.target.value); if (questionsFromApi?.length) setAnswer(questionsFromApi[0].id, e.target.value); }}>
                     <FormControlLabel value="real-data" control={<Radio />} label="Imam stvarne podatke o gorivima, anoda, električnoj energiji itd." sx={{ mb: 2 }} />
-                    <FormControlLabel value="calculated-emissions" control={<Radio />} label="Nemam detalje, ali imam već izračunate emisije (npr. iz lokalnog ETS-a ili interne MRV šeme)" sx={{ mb: 2 }} />
-                    <FormControlLabel value="default-values" control={<Radio />} label="Nemam ništa – trebam koristiti default vrijednosti" />
+                    <FormControlLabel value="calculated-emissions" control={<Radio />} label="Nemam detalje, ali imam već izračunate emisije (npr. iz lokalnog ETS-a ili interne MRV šeme)" />
                   </RadioGroup>
                 </FormControl>
               </Grid>
@@ -1794,19 +1818,102 @@ const NewCalculation: React.FC = () => {
 
         {step === 6 && (
           (stepCode && questionsFromApi.length > 0) ? (
+            (() => {
+              const anodeTypeQuestion = questionsFromApi.find((q: { code: string }) => q.code === 'ALU_ANODE_TYPE');
+              const anodeTypeAnswer = anodeTypeQuestion != null ? getAnswer(anodeTypeQuestion.id) : '';
+              const isSoderberg = anodeTypeAnswer === 'SODERBERG' || anodeTypeAnswer === 'soderberg';
+              const showAnodeTypeOnly = anodeTypeQuestion != null && anodeTypeAnswer === '';
+              const anodesFormQuestions = questionsFromApi.filter((q: { code: string }) => q.code !== 'ALU_ANODE_TYPE');
+              if (showAnodeTypeOnly) {
+                return (
+                  <DynamicQuestionStep
+                    questions={[anodeTypeQuestion]}
+                    loading={questionsLoading}
+                    error={questionsError}
+                    getAnswer={getAnswerForStep}
+                    setAnswer={setAnswer}
+                    onOptionSelect={handleOptionSelect}
+                    onValueChange={handleValueChange}
+                    onBack={handleBack}
+                    onNext={handleNext}
+                  />
+                );
+              }
+              // If Söderberg selected: no anodes quantity/carbon form; just Next to PFC
+              if (anodeTypeQuestion != null && isSoderberg) {
+                return (
+                  <>
+                    <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
+                      Unos podataka o anodama
+                    </Typography>
+                    <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                      Za Söderberg anode nije potreban dodatni unos (količina anoda / procenat ugljika). Kliknite Next za nastavak.
+                    </Typography>
+                    <Box display="flex" justifyContent="space-between" sx={{ mt: 3 }}>
+                      <Button variant="outlined" size="large" startIcon={<ArrowBack />} onClick={handleBack}>Back</Button>
+                      <Button variant="contained" size="large" endIcon={<ArrowForward />} onClick={handleNext}>Next</Button>
+                    </Box>
+                  </>
+                );
+              }
+              // Pre-baked selected: show anodes form (quantity, Da li imaš podatak o procentu ugljika?, formula)
+              return (
             <>
-              <DynamicQuestionStep
-                questions={questionsFromApi}
-                loading={questionsLoading}
-                error={questionsError}
-                getAnswer={getAnswerForStep}
-                setAnswer={setAnswer}
-                onOptionSelect={handleOptionSelect}
-                onValueChange={handleValueChange}
-                onBack={handleBack}
-                onNext={handleNext}
-              />
-              {anodesQuantity && (
+              {anodesFormQuestions.length > 0 ? (
+                <DynamicQuestionStep
+                  questions={anodesFormQuestions}
+                  loading={questionsLoading}
+                  error={questionsError}
+                  getAnswer={getAnswerForStep}
+                  setAnswer={setAnswer}
+                  onOptionSelect={handleOptionSelect}
+                  onValueChange={handleValueChange}
+                  onBack={handleBack}
+                  onNext={handleNext}
+                />
+              ) : (
+                <>
+                  <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>Unos podataka o anodama (Pre-baked)</Typography>
+                  <Grid container spacing={3}>
+                    <Grid size={12}><Typography variant="body1" sx={{ mb: 2, fontWeight: 500 }}>Kolika je količina potrošenih anoda? (u tonama)</Typography></Grid>
+                    <Grid size={{ xs: 12, md: 8 }}>
+                      <TextField fullWidth label="Količina anoda" type="number" value={anodesQuantity} onChange={(e) => setAnodesQuantity(e.target.value)} slotProps={{ htmlInput: { min: 0, step: 'any' } }} helperText="Unesite količinu u tonama (tonnes)" />
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 4 }}>
+                      <FormControl fullWidth><InputLabel>Jedinica</InputLabel><Select value="tonnes" label="Jedinica" disabled><MenuItem value="tonnes">tonnes</MenuItem></Select></FormControl>
+                    </Grid>
+                    <Grid size={12} sx={{ mt: 3 }}>
+                      <Typography variant="body1" sx={{ mb: 2, fontWeight: 500 }}>Da li imaš podatak o procentu (%) ugljika u anodama?</Typography>
+                      <FormControl component="fieldset" fullWidth>
+                        <RadioGroup value={hasCarbonPercentage} onChange={(e) => setHasCarbonPercentage(e.target.value)} row>
+                          <FormControlLabel value="yes" control={<Radio />} label="Da" sx={{ mr: 3 }} />
+                          <FormControlLabel value="no" control={<Radio />} label="Ne" />
+                        </RadioGroup>
+                      </FormControl>
+                    </Grid>
+                    {hasCarbonPercentage === 'yes' && (
+                      <Grid size={{ xs: 12, md: 6 }}>
+                        <TextField fullWidth label="Procenat ugljika (%)" type="number" value={carbonPercentage} onChange={(e) => setCarbonPercentage(e.target.value)} slotProps={{ htmlInput: { min: 0, max: 100, step: 'any' } }} helperText="Unesite procenat ugljika u anodama" />
+                      </Grid>
+                    )}
+                    {anodesQuantity && (
+                      <Grid size={12} sx={{ mt: 2 }}>
+                        <Paper elevation={1} sx={{ p: 2, backgroundColor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
+                          <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                            <strong>Izračunate emisije:</strong>{' '}
+                            {hasCarbonPercentage === 'yes' && carbonPercentage
+                              ? (Number(anodesQuantity) * (Number(carbonPercentage) / 100) * (44 / 12)).toFixed(2)
+                              : (Number(anodesQuantity) * (44 / 12)).toFixed(2)}{' '}
+                            tonnes kg CO₂e
+                          </Typography>
+                        </Paper>
+                      </Grid>
+                    )}
+                    <Grid size={12}><Box display="flex" justifyContent="space-between" sx={{ mt: 3 }}><Button variant="outlined" size="large" startIcon={<ArrowBack />} onClick={handleBack}>Back</Button><Button variant="contained" size="large" endIcon={<ArrowForward />} onClick={handleNext} disabled={!anodesQuantity}>Next</Button></Box></Grid>
+                  </Grid>
+                </>
+              )}
+              {anodesQuantity && anodesFormQuestions.length > 0 && (
                 <Paper elevation={1} sx={{ p: 2, mt: 2, backgroundColor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
                   <Typography variant="body1" sx={{ fontWeight: 600 }}>
                     <strong>Izračunate emisije:</strong>{' '}
@@ -1825,6 +1932,8 @@ const NewCalculation: React.FC = () => {
                 </Paper>
               )}
             </>
+              );
+            })()
           ) : (
           <>
             <Typography variant="h6" component="h3" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>Unos podataka o anodama</Typography>
