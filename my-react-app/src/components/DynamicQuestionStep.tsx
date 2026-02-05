@@ -39,11 +39,16 @@ export function DynamicQuestionStep({
   onNext,
   nextDisabled = false,
 }: DynamicQuestionStepProps) {
-  // Conditional visibility: e.g. ALU_ANODE_CARBON_PERCENT only when ALU_HAS_CARBON_PERCENT === 'YES'
+  const isHasCarbonYes = (val: string) => val === 'YES' || val === 'yes' || val === 'DA' || val === 'da';
+  // Conditional visibility: ALU_ANODE_CARBON_PERCENT / ALU_SODERBERG_CARBON_PERCENT only when has-carbon is Da (YES/yes/DA/da)
   const visibleQuestions = questions.filter((q) => {
     if (q.code === 'ALU_ANODE_CARBON_PERCENT') {
       const hasCarbonQ = questions.find((x) => x.code === 'ALU_HAS_CARBON_PERCENT');
-      return hasCarbonQ != null && getAnswer(hasCarbonQ.id) === 'YES';
+      return hasCarbonQ != null && isHasCarbonYes(getAnswer(hasCarbonQ.id));
+    }
+    if (q.code === 'ALU_SODERBERG_CARBON_PERCENT') {
+      const hasCarbonQ = questions.find((x) => x.code === 'ALU_SODERBERG_HAS_CARBON_PERCENT');
+      return hasCarbonQ != null && isHasCarbonYes(getAnswer(hasCarbonQ.id));
     }
     return true;
   });
@@ -144,10 +149,11 @@ export function DynamicQuestionStep({
         ))}
         <Grid size={12}>
           <Box display="flex" justifyContent="space-between" sx={{ mt: 3 }}>
-            <Button variant="outlined" size="large" startIcon={<ArrowBack />} onClick={onBack}>
+            <Button type="button" variant="outlined" size="large" startIcon={<ArrowBack />} onClick={onBack}>
               Back
             </Button>
             <Button
+              type="button"
               variant="contained"
               size="large"
               endIcon={<ArrowForward />}

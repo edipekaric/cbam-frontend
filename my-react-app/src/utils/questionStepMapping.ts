@@ -22,13 +22,15 @@ export function getStepCode(params: {
     case 5:
       return 'FUEL_INPUT';
     case 6:
-      // Anode page: first anode type (ALU_ANODE_TYPE), then ALU_ANODES_INPUT (QTY, UNIT, HAS_CARBON_PERCENT) and ALU_ANODES (ALU_ANODE_CARBON_PERCENT)
-      return ['ALU_ANODE_TYPE', 'ALU_ANODES_INPUT', 'ALU_ANODES'];
+      // Anode page: anode type, Pre-baked form (ALU_ANODES_INPUT, ALU_ANODES), Söderberg form (ALU_ANODES_SODERBERG)
+      return ['ALU_ANODE_TYPE', 'ALU_ANODES_INPUT', 'ALU_ANODES', 'ALU_ANODES_SODERBERG'];
     case 7:
       return 'ALU_PFC_METHOD';
     case 8:
-      return pathname.endsWith('/overvoltage') ? null : 'ALU_PFC_METHOD_A'; // slope only; overvoltage has no step_code in SQL
+      return pathname.endsWith('/overvoltage') ? 'ALU_PFC_METHOD_B' : 'ALU_PFC_METHOD_A';
     case 9:
+      return 'ALU_FLUE_GAS_TREATMENT';
+    case 10:
       return pathname.endsWith('/grid') || pathname.endsWith('/self-power') || pathname.endsWith('/ppa') ? null : 'ALU_ELECTRICITY_SOURCE';
     default:
       return null;
@@ -71,13 +73,21 @@ export function optionCodeToFrontendState(questionCode: string, optionCode: stri
       return lower;
     case 'ALU_CELL_TECHNOLOGY':
       return lower.replace(/_/g, '-');
+    case 'ALU_CELL_TECHNOLOGY_OVERVOLTAGE':
+      return lower.replace(/_/g, '-');
     case 'ALU_HAS_CARBON_PERCENT':
+    case 'ALU_SODERBERG_HAS_CARBON_PERCENT':
       if (optionCode === 'YES') return 'yes';
       if (optionCode === 'NO') return 'no';
       return lower;
     case 'ALU_ANODE_TYPE':
       if (optionCode === 'PRE_BAKED') return 'pre-baked';
       if (optionCode === 'SODERBERG') return 'soderberg';
+      return lower;
+    case 'ALU_FLUE_GAS_TREATMENT':
+      if (optionCode === 'SODA_ASH') return 'soda-ash';
+      if (optionCode === 'LIMESTONE') return 'limestone';
+      if (optionCode === 'NOTHING') return 'nothing';
       return lower;
     default:
       return lower;
@@ -119,13 +129,21 @@ export function frontendStateToOptionCode(questionCode: string, frontendValue: s
       return frontendValue.toUpperCase();
     case 'ALU_CELL_TECHNOLOGY':
       return frontendValue.replace(/-/g, '_').toUpperCase();
+    case 'ALU_CELL_TECHNOLOGY_OVERVOLTAGE':
+      return frontendValue.replace(/-/g, '_').toUpperCase();
     case 'ALU_HAS_CARBON_PERCENT':
+    case 'ALU_SODERBERG_HAS_CARBON_PERCENT':
       if (frontendValue === 'yes') return 'YES';
       if (frontendValue === 'no') return 'NO';
       return frontendValue.toUpperCase();
     case 'ALU_ANODE_TYPE':
       if (frontendValue === 'pre-baked') return 'PRE_BAKED';
       if (frontendValue === 'soderberg') return 'SODERBERG';
+      return frontendValue.toUpperCase();
+    case 'ALU_FLUE_GAS_TREATMENT':
+      if (frontendValue === 'soda-ash') return 'SODA_ASH';
+      if (frontendValue === 'limestone') return 'LIMESTONE';
+      if (frontendValue === 'nothing') return 'NOTHING';
       return frontendValue.toUpperCase();
     default:
       return frontendValue.toUpperCase();

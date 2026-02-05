@@ -1144,6 +1144,22 @@ const App: React.FC = () => {
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage" element={<NewCalculation />} />
+        {/* Flue gas (soda ash/limestone) – after slope or overvoltage, then electricity */}
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/flue-gas" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/flue-gas" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/flue-gas/electricity" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/flue-gas/electricity" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/flue-gas/electricity/grid" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/flue-gas/electricity/self-power" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/flue-gas/electricity/ppa" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/flue-gas/electricity/ppa/yes" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/flue-gas/electricity/ppa/no" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/flue-gas/electricity/grid" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/flue-gas/electricity/self-power" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/flue-gas/electricity/ppa" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/flue-gas/electricity/ppa/yes" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/flue-gas/electricity/ppa/no" element={<NewCalculation />} />
+        {/* Legacy: slope/electricity and overvoltage/electricity (no flue-gas segment) */}
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/electricity" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/overvoltage/electricity" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope/electricity/grid" element={<NewCalculation />} />
