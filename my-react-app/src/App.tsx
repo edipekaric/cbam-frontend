@@ -1140,6 +1140,7 @@ const App: React.FC = () => {
         <Route path="new-calculation/:categoryParam/:productTypeParam" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam" element={<NewCalculation />} />
+        <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/complete" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc" element={<NewCalculation />} />
         <Route path="new-calculation/:categoryParam/:productTypeParam/:processParam/:dataLevelParam/anode-elektrode/pfc/slope" element={<NewCalculation />} />

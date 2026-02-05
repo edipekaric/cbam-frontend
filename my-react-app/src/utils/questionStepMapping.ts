@@ -1,6 +1,6 @@
 /**
  * Maps frontend step + context to DB step_code(s) for fetching questions.
- * step_code values come from SQL: ALU_DECLARATION, ALU_UNWROUGHT, ALU_PRODUCT_TYPE, ALU_DATA, FUEL_INPUT, ALU_ANODES, ALU_ANODES_INPUT, ALU_PFC_METHOD, ALU_PFC_METHOD_A, ALU_ELECTRICITY_SOURCE.
+ * step_code values come from SQL: ALU_DECLARATION, ALU_UNWROUGHT, ALU_PRODUCT_TYPE, ALU_DATA, FUEL_INPUT, ALU_EMISSIONS_INPUT, ALU_ANODES, ALU_ANODES_INPUT, ALU_PFC_METHOD, ALU_PFC_METHOD_A, ALU_ELECTRICITY_SOURCE.
  * Returns string[] for step 6 (anode) so we fetch both ALU_ANODES_INPUT and ALU_ANODES and merge (no migration needed).
  */
 export function getStepCode(params: {
@@ -8,8 +8,9 @@ export function getStepCode(params: {
   category: string;
   aluminumProductType: string;
   pathname: string;
+  dataQualityLevel?: string;
 }): string | string[] | null {
-  const { step, category, aluminumProductType, pathname } = params;
+  const { step, category, aluminumProductType, pathname, dataQualityLevel } = params;
   if (category !== 'Aluminium') return null;
 
   switch (step) {
@@ -20,7 +21,9 @@ export function getStepCode(params: {
     case 4:
       return aluminumProductType === 'unwrought' ? 'ALU_DATA' : null; // products step 4 has no questions from DB
     case 5:
-      return 'FUEL_INPUT';
+      return dataQualityLevel === 'calculated-emissions' ? 'ALU_EMISSIONS_INPUT' : 'FUEL_INPUT';
+    case 12:
+      return dataQualityLevel === 'calculated-emissions' ? 'ALU_EMISSIONS_INPUT' : null;
     case 6:
       // Anode page: anode type, Pre-baked form (ALU_ANODES_INPUT, ALU_ANODES), Söderberg form (ALU_ANODES_SODERBERG)
       return ['ALU_ANODE_TYPE', 'ALU_ANODES_INPUT', 'ALU_ANODES', 'ALU_ANODES_SODERBERG'];

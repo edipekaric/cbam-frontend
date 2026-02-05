@@ -120,8 +120,9 @@ const NewCalculation: React.FC = () => {
         category,
         aluminumProductType,
         pathname: location.pathname,
+        dataQualityLevel,
       }),
-    [step, category, aluminumProductType, location.pathname]
+    [step, category, aluminumProductType, location.pathname, dataQualityLevel]
   );
   const { questions: questionsFromApi, loading: questionsLoading, error: questionsError } = useQuestionsByStep(stepCode);
   const { answers, getAnswer, setAnswer, saveAnswer, deleteAnswersForQuestions } = useCalculationAnswers(calculationId);
@@ -467,8 +468,12 @@ const NewCalculation: React.FC = () => {
 
     // Set step from pathname (and params) so refresh restores the correct step
     // Check routes in order of specificity (most specific first)
+    // 0. End screen for calculated-emissions path (after user entered direct/indirect emissions)
+    if (dataLevelParam === 'emissions' && location.pathname.endsWith('/complete')) {
+      setStep(12);
+    }
     // 1. Check for /grid, /self-power, /ppa/yes, /ppa/no, or /ppa routes first (most specific - shows step 11)
-    if (location.pathname.endsWith('/grid') || location.pathname.endsWith('/self-power') || 
+    else if (location.pathname.endsWith('/grid') || location.pathname.endsWith('/self-power') || 
         location.pathname.endsWith('/ppa/yes') || location.pathname.endsWith('/ppa/no') || 
         location.pathname.endsWith('/ppa')) {
       setStep(11);
@@ -646,9 +651,9 @@ const NewCalculation: React.FC = () => {
 
   const handleNext = async () => {
     // Persist current step answers to API only when user presses Next (not on every change).
-    // Step 5 (fuel) has its own delete-then-save-all logic below, so skip generic persist for it.
-    // For other steps: delete existing answers for this step's questions, then save current values (overwrite).
-    if (calculationId != null && questionsFromApi?.length && step !== 5) {
+    // Step 5 (fuel, real-data) has its own delete-then-save-all logic below, so skip generic persist for that case.
+    // For step 5 with calculated-emissions we use generic persist for ALU_EMISSIONS_INPUT questions.
+    if (calculationId != null && questionsFromApi?.length && !(step === 5 && dataQualityLevel === 'real-data')) {
       const questionIds = questionsFromApi.map((q: QuestionWithOptions) => q.id);
       const valuesToSave: { questionId: number; value: string }[] = [];
       for (const q of questionsFromApi) {
@@ -757,8 +762,7 @@ const NewCalculation: React.FC = () => {
       }
       setStep(5); // Go to calculation form (A3, A4, or A5 based on selection)
     } else if (step === 5) {
-      // Step 5 is the fuel input form (for fuels route)
-      // Validation: require sector, subsector, emissionFactorName, denominator, amount (and resolved emissionFactorId) for all fuel entries
+      // Step 5: fuel input (real-data) or calculated emissions input (calculated-emissions)
       if (category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'real-data') {
         const allValid = fuelEntries.every((entry: FuelEntry) =>
           entry.sector && entry.subsector && entry.emissionFactorName && entry.denominator && entry.amount && entry.emissionFactorId != null
@@ -776,12 +780,20 @@ const NewCalculation: React.FC = () => {
             }
           }
         }
-        // Navigate to anodes step
         const slug = categoryToSlug(category);
         const productTypeSlug = productTypeToSlug(aluminumProductType);
         const processSlug = processToSlug(productionProcess);
         const dataLevelSlug = dataLevelToSlug(dataQualityLevel);
         navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode`, { replace: true });
+      } else if (category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'calculated-emissions') {
+        // Navigate to end screen after entering total direct/indirect emissions (answers already persisted above)
+        const slug = categoryToSlug(category);
+        const productTypeSlug = productTypeToSlug(aluminumProductType);
+        const processSlug = processToSlug(productionProcess);
+        const dataLevelSlug = dataLevelToSlug(dataQualityLevel);
+        navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/complete`, { replace: true });
+        setStep(12);
+        return;
       }
       setStep(6); // Go to next step
     } else if (step === 6) {
@@ -1079,7 +1091,17 @@ const NewCalculation: React.FC = () => {
         setAnodeTypeConfirmed(false);
         return;
       }
-      if (category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'real-data') {
+      if (category === 'Aluminium' && aluminumProductType === 'unwrought') {
+        const slug = categoryToSlug(category);
+        const productTypeSlug = productTypeToSlug(aluminumProductType);
+        const processSlug = processToSlug(productionProcess);
+        const dataLevelSlug = dataLevelToSlug(dataQualityLevel);
+        navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}`, { replace: true });
+      }
+      setStep(5);
+    } else if (step === 12) {
+      // Going back from end screen to emissions input (step 5)
+      if (category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'calculated-emissions') {
         const slug = categoryToSlug(category);
         const productTypeSlug = productTypeToSlug(aluminumProductType);
         const processSlug = processToSlug(productionProcess);
@@ -1527,17 +1549,24 @@ const NewCalculation: React.FC = () => {
             </Grid>
           </Grid>
         ) : stepCode && questionsFromApi.length > 0 ? (
-          <DynamicQuestionStep
-            questions={questionsFromApi}
-            loading={questionsLoading}
-            error={questionsError}
-            getAnswer={getAnswerForStep}
-            setAnswer={setAnswer}
-            onOptionSelect={handleOptionSelect}
-            onValueChange={handleValueChange}
-            onBack={handleBack}
-            onNext={handleNext}
-          />
+          <>
+            {dataQualityLevel === 'calculated-emissions' && (
+              <Typography variant="h6" component="h2" sx={{ mb: 3, fontWeight: 600 }}>
+                Unesite:
+              </Typography>
+            )}
+            <DynamicQuestionStep
+              questions={questionsFromApi}
+              loading={questionsLoading}
+              error={questionsError}
+              getAnswer={getAnswerForStep}
+              setAnswer={setAnswer}
+              onOptionSelect={handleOptionSelect}
+              onValueChange={handleValueChange}
+              onBack={handleBack}
+              onNext={handleNext}
+            />
+          </>
         ) : questionsLoading ? (
           <Box display="flex" justifyContent="center" alignItems="center" minHeight={120}><CircularProgress /></Box>
         ) : questionsError ? (
@@ -1840,6 +1869,43 @@ const NewCalculation: React.FC = () => {
           ) : (
             <Typography color="text.secondary">No questions available for this step.</Typography>
           )
+        )}
+
+        {step === 12 && dataQualityLevel === 'calculated-emissions' && (
+          <Box sx={{ py: 4 }}>
+            <Typography variant="h5" component="h2" gutterBottom sx={{ fontWeight: 700, mb: 3 }}>
+              Calculation complete
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+              Your pre-calculated emissions have been saved.
+            </Typography>
+            {questionsFromApi.length >= 2 && (() => {
+              const directQ = questionsFromApi.find((q: { code: string }) => q.code === 'ALU_TOTAL_DIRECT_EMISSIONS');
+              const indirectQ = questionsFromApi.find((q: { code: string }) => q.code === 'ALU_TOTAL_INDIRECT_EMISSIONS');
+              const directVal = directQ ? getAnswer(directQ.id) : '';
+              const indirectVal = indirectQ ? getAnswer(indirectQ.id) : '';
+              const total = (Number.parseFloat(String(directVal)) || 0) + (Number.parseFloat(String(indirectVal)) || 0);
+              return (
+                <Paper elevation={1} sx={{ p: 3, mb: 3, backgroundColor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>Summary</Typography>
+                  <Typography variant="body1" sx={{ mb: 1 }}>Total direct emissions: {String(directVal || '—')} tonnes CO₂e</Typography>
+                  <Typography variant="body1" sx={{ mb: 1 }}>Total indirect emissions: {String(indirectVal || '—')} tonnes CO₂e</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>Total: {total.toFixed(2)} tonnes CO₂e</Typography>
+                </Paper>
+              );
+            })()}
+            <Box display="flex" gap={2} flexWrap="wrap">
+              <Button variant="outlined" size="large" startIcon={<ArrowBack />} onClick={handleBack}>
+                Back
+              </Button>
+              <Button variant="contained" size="large" onClick={() => navigate('/dashboard')}>
+                Back to Dashboard
+              </Button>
+              <Button variant="outlined" size="large" onClick={() => navigate('/dashboard/new-calculation')}>
+                New calculation
+              </Button>
+            </Box>
+          </Box>
         )}
       </Paper>
     </Container>
