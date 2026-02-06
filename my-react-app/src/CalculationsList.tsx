@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -17,17 +16,11 @@ import {
   Alert,
 } from '@mui/material';
 import { ArrowBack } from '@mui/icons-material';
-import { apiRequest } from './utils/api';
+import { useDashboardCalculations } from './Dashboard';
 
-interface Calculation {
-  id: number;
-  status: 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
-  currentStep?: string;
-  createdAt?: string;
-  modifiedAt?: string;
-}
+type CalculationStatus = 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
-const statusColor: Record<Calculation['status'], 'default' | 'primary' | 'success' | 'warning' | 'error'> = {
+const statusColor: Record<CalculationStatus, 'default' | 'primary' | 'success' | 'warning' | 'error'> = {
   DRAFT: 'default',
   IN_PROGRESS: 'primary',
   COMPLETED: 'success',
@@ -36,33 +29,10 @@ const statusColor: Record<Calculation['status'], 'default' | 'primary' | 'succes
 
 const CalculationsList: React.FC = () => {
   const navigate = useNavigate();
-  const [calculations, setCalculations] = useState<Calculation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchCalculations = async () => {
-      setLoading(true);
-      setError(null);
-      const meResult = await apiRequest<{ success: boolean; user?: { id: number } }>('/users/me');
-      if (meResult === null || !meResult.data.success || !meResult.data.user?.id) {
-        setError('Session expired or not authenticated');
-        setLoading(false);
-        return;
-      }
-      const calcResult = await apiRequest<{ success: boolean; calculations?: Calculation[]; message?: string }>(
-        `/calculations/user/${meResult.data.user.id}`
-      );
-      if (calcResult === null || !calcResult.data.success) {
-        setError(calcResult?.data?.message ?? 'Failed to load calculations');
-        setLoading(false);
-        return;
-      }
-      setCalculations(Array.isArray(calcResult.data.calculations) ? calcResult.data.calculations : []);
-      setLoading(false);
-    };
-    fetchCalculations();
-  }, []);
+  const dashboardCalculations = useDashboardCalculations();
+  const calculations = dashboardCalculations?.calculations ?? [];
+  const loading = dashboardCalculations?.calculationsLoading ?? true;
+  const error = dashboardCalculations?.calculationsError ?? null;
 
   const formatDate = (iso?: string) => {
     if (!iso) return '—';
@@ -84,7 +54,7 @@ const CalculationsList: React.FC = () => {
         All calculations
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-        Calculations created by you and their current status.
+        Calculations for your company and their current status.
       </Typography>
 
       {loading && (

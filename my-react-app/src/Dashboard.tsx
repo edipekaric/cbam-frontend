@@ -1,7 +1,30 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { useNavigate, Outlet, useLocation } from 'react-router-dom';
 import SessionExpired from './SessionExpired';
 import { isTokenExpired, API_BASE_URL, apiRequest } from './utils/api';
+
+export interface DashboardCalculationItem {
+  id: number;
+  status: 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  currentStep?: string;
+  createdAt?: string;
+  modifiedAt?: string;
+}
+
+interface DashboardCalculationsContextValue {
+  calculations: DashboardCalculationItem[];
+  calculationsCount: number | null;
+  calculationsLoading: boolean;
+  calculationsError: string | null;
+  refetchCalculations: () => Promise<void>;
+}
+
+const DashboardCalculationsContext = createContext<DashboardCalculationsContextValue | null>(null);
+
+export function useDashboardCalculations() {
+  const ctx = useContext(DashboardCalculationsContext);
+  return ctx;
+}
 import {
   AppBar,
   Toolbar,
@@ -48,6 +71,7 @@ interface User {
   username: string;
   email: string;
   companyName: string;
+  companyId?: number | null;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
@@ -60,12 +84,34 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
   const [newCalcError, setNewCalcError] = useState<string | null>(null);
   const [newCalcLoading, setNewCalcLoading] = useState(false);
   const [calculationsCount, setCalculationsCount] = useState<number | null>(null);
+  const [calculationsList, setCalculationsList] = useState<DashboardCalculationItem[]>([]);
+  const [calculationsLoading, setCalculationsLoading] = useState(false);
+  const [calculationsError, setCalculationsError] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Fetch current user data on component mount
+  const refetchCalculations = useCallback(async () => {
+    const meResult = await apiRequest<{ success: boolean; user?: { companyId?: number | null } }>('/users/me');
+    if (meResult === null || !meResult.data.success || meResult.data.user?.companyId == null) return;
+    const companyId = meResult.data.user.companyId;
+    setCalculationsLoading(true);
+    setCalculationsError(null);
+    const calcResult = await apiRequest<{ success: boolean; calculations?: DashboardCalculationItem[]; message?: string }>(
+      `/calculations/company/${companyId}`
+    );
+    if (calcResult !== null && calcResult.data.success && Array.isArray(calcResult.data.calculations)) {
+      setCalculationsList(calcResult.data.calculations);
+      setCalculationsCount(calcResult.data.calculations.length);
+    } else {
+      setCalculationsError(calcResult?.data?.message ?? 'Failed to load calculations');
+    }
+    setCalculationsLoading(false);
+  }, []);
+
+  // Fetch current user data and calculations by company (single /users/me + single /calculations/company)
   useEffect(() => {
-    const fetchCurrentUser = async () => {
+    const fetchCurrentUserAndCalculations = async () => {
+      setCalculationsLoading(true);
       try {
         const token = localStorage.getItem('token');
         if (!token) {
@@ -85,45 +131,39 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
           const data = await response.json();
           if (data.success && data.user) {
             setUser(data.user);
-            // Use username as display name (not companyName)
             setUserName(data.user.username || 'User');
             setSessionExpired(false);
+            const companyId = data.user.companyId;
+            if (companyId != null) {
+              const calcResult = await apiRequest<{ success: boolean; calculations?: DashboardCalculationItem[] }>(
+                `/calculations/company/${companyId}`
+              );
+              if (calcResult !== null && calcResult.data.success && Array.isArray(calcResult.data.calculations)) {
+                setCalculationsList(calcResult.data.calculations);
+                setCalculationsCount(calcResult.data.calculations.length);
+              }
+            }
           }
         } else if (response.status === 401) {
-          // Token expired or invalid - show session expired screen
           localStorage.removeItem('token');
           localStorage.removeItem('user');
           setSessionExpired(true);
         }
       } catch (error) {
         console.error('Error fetching user:', error);
-        // On error, check if token exists - if not, redirect to login
         const token = localStorage.getItem('token');
         if (!token) {
           navigate('/login');
         } else {
-          // Token exists but request failed - might be expired
           setSessionExpired(true);
         }
       } finally {
         setLoading(false);
+        setCalculationsLoading(false);
       }
     };
 
-    fetchCurrentUser();
-
-    // Fetch calculations count for current user
-    const fetchCalculationsCount = async () => {
-      const meResult = await apiRequest<{ success: boolean; user?: { id: number } }>('/users/me');
-      if (meResult === null || !meResult.data.success || !meResult.data.user?.id) return;
-      const calcResult = await apiRequest<{ success: boolean; calculations?: unknown[] }>(
-        `/calculations/user/${meResult.data.user.id}`
-      );
-      if (calcResult !== null && calcResult.data.success && Array.isArray(calcResult.data.calculations)) {
-        setCalculationsCount(calcResult.data.calculations.length);
-      }
-    };
-    fetchCalculationsCount();
+    fetchCurrentUserAndCalculations();
 
     // Set up periodic token validation (check every 1 hour and 2 minutes)
     const intervalId = setInterval(() => {
@@ -214,7 +254,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
       }
       const calculationId = calcResult.data.calculation.id;
       setNewCalcLoading(false);
-      navigate('/dashboard/new-calculation', { state: { calculationId } });
+      navigate(`/dashboard/new-calculation/${calculationId}`);
     } catch (err) {
       setNewCalcError(err instanceof Error ? err.message : 'Failed to create calculation');
       setNewCalcLoading(false);
@@ -350,12 +390,21 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
     }
   ];
 
+  const dashboardCalculationsValue: DashboardCalculationsContextValue = {
+    calculations: calculationsList,
+    calculationsCount,
+    calculationsLoading,
+    calculationsError,
+    refetchCalculations,
+  };
+
   // Show session expired screen if session expired
   if (sessionExpired) {
     return <SessionExpired />;
   }
 
   return (
+    <DashboardCalculationsContext.Provider value={dashboardCalculationsValue}>
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
       {/* Navigation */}
       <AppBar position="fixed" sx={{ bgcolor: 'white', color: 'text.primary', boxShadow: 1 }}>
@@ -578,6 +627,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
         <Outlet />
       </Box>
     </Box>
+    </DashboardCalculationsContext.Provider>
   );
 };
 
