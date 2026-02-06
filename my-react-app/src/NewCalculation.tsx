@@ -25,7 +25,7 @@ import { useCalculationAnswers } from './hooks/useCalculationAnswers';
 import { apiRequest } from './utils/api';
 import { getStepCode, optionCodeToFrontendState, frontendStateToOptionCode } from './utils/questionStepMapping';
 import { DynamicQuestionStep } from './components/DynamicQuestionStep';
-import { getAllQuestions } from './api/questions';
+import { getAllQuestions, getQuestionsByStep } from './api/questions';
 import {
   getLookupSectors,
   getLookupSubsectors,
@@ -357,6 +357,18 @@ const NewCalculation: React.FC = () => {
     }
   };
 
+  /** URL segment for the anode type selection step (Pre-baked / Söderberg). Path: .../fuels/select-baked-soderberg */
+  const ANODE_TYPE_SELECTION_PATH = 'select-baked-soderberg';
+
+  /** Anode form segment for PFC+ URLs: from path (e.g. .../pre-baked/pfc) or from saved answer. */
+  const getAnodeFormSegment = (): 'pre-baked' | 'soderberg' => {
+    if (location.pathname.includes('/pre-baked/')) return 'pre-baked';
+    if (location.pathname.includes('/soderberg/')) return 'soderberg';
+    const q = questionsFromApi?.find((q: { code: string }) => q.code === 'ALU_ANODE_TYPE');
+    const a = q != null ? getAnswer(q.id) : '';
+    return (a === 'PRE_BAKED' || a === 'pre-baked') ? 'pre-baked' : 'soderberg';
+  };
+
   // Helper function to convert category name to URL slug
   const categoryToSlug = (cat: string) => {
     return cat.toLowerCase().split(/\s+/).join('-');
@@ -563,21 +575,17 @@ const NewCalculation: React.FC = () => {
         }
       }
     }
-    // 6. Check for /anode-elektrode route (but not /pfc, /slope, /overvoltage, /flue-gas, /electricity, /grid, /self-power, /ppa)
-    else if (location.pathname.endsWith('/anode-elektrode') && 
-             !location.pathname.endsWith('/pfc') && 
-             !location.pathname.endsWith('/slope') &&
-             !location.pathname.endsWith('/overvoltage') &&
-             !location.pathname.includes('/flue-gas') &&
-             !location.pathname.includes('/electricity') &&
-             !location.pathname.endsWith('/grid') &&
-             !location.pathname.endsWith('/self-power') &&
-             !location.pathname.endsWith('/ppa') &&
-             !location.pathname.endsWith('/ppa/yes') &&
-             !location.pathname.endsWith('/ppa/no')) {
+    // 6a. Anode form sub-step: .../select-baked-soderberg/pre-baked or .../soderberg → step 6, show form
+    else if (location.pathname.endsWith(`/${ANODE_TYPE_SELECTION_PATH}/pre-baked`) || location.pathname.endsWith(`/${ANODE_TYPE_SELECTION_PATH}/soderberg`)) {
       setStep(6);
+      setAnodeTypeConfirmed(true);
     }
-    // Step 5: fuels/emissions segment (no anode-elektrode, pfc, etc.)
+    // 6b. Anode type selection only: .../select-baked-soderberg (exact; form subpaths handled above)
+    else if (location.pathname.endsWith(`/${ANODE_TYPE_SELECTION_PATH}`)) {
+      setStep(6);
+      setAnodeTypeConfirmed(false);
+    }
+    // Step 5: fuels/emissions segment (no select-baked-soderberg, pfc, etc.)
     else if (dataLevelParam && productTypeParam === 'unwrought' && (dataLevelParam === 'fuels' || dataLevelParam === 'emissions')) {
       setStep(5);
     }
@@ -788,7 +796,7 @@ const NewCalculation: React.FC = () => {
         const productTypeSlug = productTypeToSlug(aluminumProductType);
         const processSlug = processToSlug(productionProcess);
         const dataLevelSlug = dataLevelToSlug(dataQualityLevel);
-        navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode`, { replace: true });
+        navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/${ANODE_TYPE_SELECTION_PATH}`, { replace: true });
       } else if (category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'calculated-emissions') {
         // Navigate to end screen after entering total direct/indirect emissions (answers already persisted above)
         const slug = categoryToSlug(category);
@@ -813,9 +821,17 @@ const NewCalculation: React.FC = () => {
       const soderbergHasCarbon = soderbergHasCarbonQ != null ? getAnswer(soderbergHasCarbonQ.id) : '';
       const soderbergCarbonPercent = soderbergCarbonQ != null ? getAnswer(soderbergCarbonQ.id) : '';
       const soderbergFormFilled = Boolean(soderbergPasteQty) && Boolean(soderbergHasCarbon) && (soderbergHasCarbon === 'NO' || soderbergHasCarbon === 'no' || Boolean(soderbergCarbonPercent));
-      // If user has not yet confirmed anode type: require selection and advance to form on Next (no URL change)
+      // If user has not yet confirmed anode type: require selection, append URL sub-path, and show form
       if (anodeTypeQuestion && anodeTypeAnswer !== '' && !anodeTypeConfirmed) {
         setAnodeTypeConfirmed(true);
+        if (category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'real-data') {
+          const slug = categoryToSlug(category);
+          const productTypeSlug = productTypeToSlug(aluminumProductType);
+          const processSlug = processToSlug(productionProcess);
+          const dataLevelSlug = dataLevelToSlug(dataQualityLevel);
+          const anodeSubPath = isPreBaked ? 'pre-baked' : 'soderberg';
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/${ANODE_TYPE_SELECTION_PATH}/${anodeSubPath}`, { replace: true });
+        }
         return;
       }
       if (anodeTypeQuestion && anodeTypeAnswer !== '' && anodeTypeConfirmed) {
@@ -831,7 +847,8 @@ const NewCalculation: React.FC = () => {
         const productTypeSlug = productTypeToSlug(aluminumProductType);
         const processSlug = processToSlug(productionProcess);
         const dataLevelSlug = dataLevelToSlug(dataQualityLevel);
-        navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc`, { replace: true });
+        const anodeSubPath = isPreBaked ? 'pre-baked' : 'soderberg';
+        navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/${ANODE_TYPE_SELECTION_PATH}/${anodeSubPath}/pfc`, { replace: true });
       }
       setStep(7); // Go to next step (PFC)
     } else if (step === 7) {
@@ -849,11 +866,11 @@ const NewCalculation: React.FC = () => {
         
         if (pfcMethod === 'anode-effect') {
           // Option "a" - navigate to slope step
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope`, { replace: true });
           setStep(8); // Go to slope step
         } else if (pfcMethod === 'aeo-ce') {
           // Option "b" - navigate to overvoltage step
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage`, { replace: true });
           setStep(8); // Go to overvoltage step (same as slope)
         } else {
           setStep(8);
@@ -874,7 +891,7 @@ const NewCalculation: React.FC = () => {
           if (!anodeEffectFrequency || !anodeEffectDuration || !primaryAluminumQuantity || !cellTechnology) {
             return;
           }
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope/flue-gas`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope/flue-gas`, { replace: true });
         } else if (location.pathname.endsWith('/overvoltage')) {
           // Validate Method B (AEO/CE) from API answers only
           if (questionsFromApi.length > 0) {
@@ -888,7 +905,7 @@ const NewCalculation: React.FC = () => {
           } else {
             return;
           }
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage/flue-gas`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage/flue-gas`, { replace: true });
         }
         setStep(9);
       } else {
@@ -909,11 +926,11 @@ const NewCalculation: React.FC = () => {
         if (needsQty && qtyQuestion && !getAnswer(qtyQuestion.id)) return;
         let basePath = '';
         if (location.pathname.includes('/slope/flue-gas')) {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope/flue-gas/electricity`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope/flue-gas/electricity`;
         } else if (location.pathname.includes('/overvoltage/flue-gas')) {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage/flue-gas/electricity`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage/flue-gas/electricity`;
         } else {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/flue-gas/electricity`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/flue-gas/electricity`;
         }
         navigate(basePath, { replace: true });
       }
@@ -932,17 +949,17 @@ const NewCalculation: React.FC = () => {
         
         let basePath = '';
         if (location.pathname.includes('/slope/flue-gas/electricity')) {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope/flue-gas/electricity`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope/flue-gas/electricity`;
         } else if (location.pathname.includes('/overvoltage/flue-gas/electricity')) {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage/flue-gas/electricity`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage/flue-gas/electricity`;
         } else if (location.pathname.includes('/flue-gas/electricity')) {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/flue-gas/electricity`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/flue-gas/electricity`;
         } else if (location.pathname.includes('/slope/electricity')) {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope/electricity`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope/electricity`;
         } else if (location.pathname.includes('/overvoltage/electricity')) {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage/electricity`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage/electricity`;
         } else {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/electricity`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/electricity`;
         }
         
         if (electricitySource === 'grid') {
@@ -969,17 +986,17 @@ const NewCalculation: React.FC = () => {
         const dataLevelSlug = dataLevelToSlug(dataQualityLevel);
         let basePath = '';
         if (location.pathname.includes('/slope/flue-gas/electricity')) {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope/flue-gas/electricity/ppa`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope/flue-gas/electricity/ppa`;
         } else if (location.pathname.includes('/overvoltage/flue-gas/electricity')) {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage/flue-gas/electricity/ppa`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage/flue-gas/electricity/ppa`;
         } else if (location.pathname.includes('/flue-gas/electricity')) {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/flue-gas/electricity/ppa`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/flue-gas/electricity/ppa`;
         } else if (location.pathname.includes('/slope/electricity')) {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope/electricity/ppa`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope/electricity/ppa`;
         } else if (location.pathname.includes('/overvoltage/electricity')) {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage/electricity/ppa`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage/electricity/ppa`;
         } else {
-          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/electricity/ppa`;
+          basePath = `/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/electricity/ppa`;
         }
         if (ppaHasEmissionFactor === 'yes') {
           navigate(`${basePath}/yes`, { replace: true });
@@ -991,11 +1008,31 @@ const NewCalculation: React.FC = () => {
   };
 
   const handleBack = async () => {
-    // On Back: delete answers for the current step so we can re-save when user goes Next again (A -> Back -> B -> Next).
-    if (step >= 2 && calculationId != null && questionsFromApi?.length) {
-      const questionIds = questionsFromApi.map((q: QuestionWithOptions) => q.id);
-      await deleteAnswersForQuestions(questionIds);
+    // Step 6 anode: if we're on the form (.../select-baked-soderberg/pre-baked or .../soderberg), Back = go to anode type selection (.../fuels/select-baked-soderberg).
+    const onAnodeForm = location.pathname.endsWith(`/${ANODE_TYPE_SELECTION_PATH}/pre-baked`) || location.pathname.endsWith(`/${ANODE_TYPE_SELECTION_PATH}/soderberg`);
+    if (step === 6 && onAnodeForm) {
+      // Delete step 6 answers from DB first so they don't persist and so the "saved answer" effect won't re-show the form after navigate.
+      if (calculationId != null && questionsFromApi?.length) {
+        const step6QuestionIds = questionsFromApi.map((q: QuestionWithOptions) => q.id);
+        await deleteAnswersForQuestions(step6QuestionIds);
+      }
+      setAnodeTypeConfirmed(false);
+      if (category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'real-data') {
+        const slug = categoryToSlug(category);
+        const productTypeSlug = productTypeToSlug(aluminumProductType);
+        const processSlug = processToSlug(productionProcess);
+        const dataLevelSlug = dataLevelToSlug(dataQualityLevel);
+        navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/${ANODE_TYPE_SELECTION_PATH}`, { replace: true });
+      }
+      return;
     }
+
+    // On Back: delete only the current step's answers (the step we're leaving), so we don't leave them in the DB (e.g. PRE_BAKED when Back from step 6). Do not delete the previous step — e.g. fuels stay when going Back from anode.
+    if (step >= 2 && calculationId != null && questionsFromApi?.length) {
+      const currentStepQuestionIds = questionsFromApi.map((q: QuestionWithOptions) => q.id);
+      await deleteAnswersForQuestions(currentStepQuestionIds);
+    }
+
     if (step === 11) {
       // Going back from step 11 (grid/self-power/ppa/yes/ppa/no) to step 10 (electricity) or /ppa
       if (category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'real-data') {
@@ -1006,30 +1043,30 @@ const NewCalculation: React.FC = () => {
         
         if (location.pathname.endsWith('/ppa/yes') || location.pathname.endsWith('/ppa/no')) {
           if (location.pathname.includes('/slope/flue-gas/electricity')) {
-            navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope/flue-gas/electricity/ppa`, { replace: true });
+            navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope/flue-gas/electricity/ppa`, { replace: true });
           } else if (location.pathname.includes('/overvoltage/flue-gas/electricity')) {
-            navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage/flue-gas/electricity/ppa`, { replace: true });
+            navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage/flue-gas/electricity/ppa`, { replace: true });
           } else if (location.pathname.includes('/slope/electricity')) {
-            navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope/electricity/ppa`, { replace: true });
+            navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope/electricity/ppa`, { replace: true });
           } else if (location.pathname.includes('/overvoltage/electricity')) {
-            navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage/electricity/ppa`, { replace: true });
+            navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage/electricity/ppa`, { replace: true });
           } else {
-            navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/electricity/ppa`, { replace: true });
+            navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/electricity/ppa`, { replace: true });
           }
           setPpaHasEmissionFactor('');
           return;
         }
         
         if (location.pathname.includes('/slope/flue-gas/electricity')) {
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope/flue-gas/electricity`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope/flue-gas/electricity`, { replace: true });
         } else if (location.pathname.includes('/overvoltage/flue-gas/electricity')) {
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage/flue-gas/electricity`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage/flue-gas/electricity`, { replace: true });
         } else if (location.pathname.includes('/slope/electricity')) {
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope/electricity`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope/electricity`, { replace: true });
         } else if (location.pathname.includes('/overvoltage/electricity')) {
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage/electricity`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage/electricity`, { replace: true });
         } else {
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/electricity`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/electricity`, { replace: true });
         }
       }
       setStep(10);
@@ -1041,15 +1078,15 @@ const NewCalculation: React.FC = () => {
         const processSlug = processToSlug(productionProcess);
         const dataLevelSlug = dataLevelToSlug(dataQualityLevel);
         if (location.pathname.includes('/slope/flue-gas/electricity')) {
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope/flue-gas`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope/flue-gas`, { replace: true });
         } else if (location.pathname.includes('/overvoltage/flue-gas/electricity')) {
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage/flue-gas`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage/flue-gas`, { replace: true });
         } else if (location.pathname.includes('/slope/electricity')) {
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope`, { replace: true });
         } else if (location.pathname.includes('/overvoltage/electricity')) {
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage`, { replace: true });
         } else {
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/flue-gas`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/flue-gas`, { replace: true });
         }
       }
       setStep(9);
@@ -1061,9 +1098,9 @@ const NewCalculation: React.FC = () => {
         const processSlug = processToSlug(productionProcess);
         const dataLevelSlug = dataLevelToSlug(dataQualityLevel);
         if (location.pathname.includes('/slope/flue-gas')) {
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/slope`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/slope`, { replace: true });
         } else if (location.pathname.includes('/overvoltage/flue-gas')) {
-          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc/overvoltage`, { replace: true });
+          navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc/overvoltage`, { replace: true });
         }
       }
       setStep(8);
@@ -1075,26 +1112,43 @@ const NewCalculation: React.FC = () => {
         const productTypeSlug = productTypeToSlug(aluminumProductType);
         const processSlug = processToSlug(productionProcess);
         const dataLevelSlug = dataLevelToSlug(dataQualityLevel);
-        navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode/pfc`, { replace: true });
+        navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/select-baked-soderberg/${getAnodeFormSegment()}/pfc`, { replace: true });
       }
       setStep(7);
     } else if (step === 7) {
-      // Going back from step 7 (PFC) to step 6 (anodes)
+      // Going back from step 7 (PFC) to step 6 (anode form: pre-baked or soderberg). Delete step 6 answers from DB first.
+      if (calculationId != null && category === 'Aluminium' && aluminumProductType === 'unwrought') {
+        const step6Code = getStepCode({
+          step: 6,
+          category,
+          aluminumProductType,
+          pathname: location.pathname,
+          dataQualityLevel,
+        });
+        if (step6Code) {
+          const codes = Array.isArray(step6Code) ? step6Code : [step6Code];
+          const step6Questions = (await Promise.all(codes.map((code: string) => getQuestionsByStep(code)))).flat();
+          const step6QuestionIds = step6Questions.map((q: { id: number }) => q.id);
+          if (step6QuestionIds.length > 0) {
+            await deleteAnswersForQuestions(step6QuestionIds);
+          }
+        }
+      }
       if (category === 'Aluminium' && aluminumProductType === 'unwrought' && dataQualityLevel === 'real-data') {
-        // Remove /pfc from URL
         const slug = categoryToSlug(category);
         const productTypeSlug = productTypeToSlug(aluminumProductType);
         const processSlug = processToSlug(productionProcess);
         const dataLevelSlug = dataLevelToSlug(dataQualityLevel);
-        navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/anode-elektrode`, { replace: true });
+        const anodeTypeQuestion = questionsFromApi?.find((q: { code: string }) => q.code === 'ALU_ANODE_TYPE');
+        const anodeTypeAnswer = anodeTypeQuestion != null ? getAnswer(anodeTypeQuestion.id) : '';
+        const isPreBaked = anodeTypeAnswer === 'PRE_BAKED' || anodeTypeAnswer === 'pre-baked';
+        const formSegment = isPreBaked ? 'pre-baked' : 'soderberg';
+        navigate(`/dashboard/new-calculation/${slug}/${productTypeSlug}/${processSlug}/${dataLevelSlug}/${ANODE_TYPE_SELECTION_PATH}/${formSegment}`, { replace: true });
       }
       setStep(6);
     } else if (step === 6) {
-      // Going back from step 6: if on form (anode type already confirmed), return to anode type question; else go to step 5
-      if (anodeTypeConfirmed) {
-        setAnodeTypeConfirmed(false);
-        return;
-      }
+      // Going back from step 6 to step 5 — user can return and choose Pre-baked/Söderberg again.
+      setAnodeTypeConfirmed(false);
       if (category === 'Aluminium' && aluminumProductType === 'unwrought') {
         const slug = categoryToSlug(category);
         const productTypeSlug = productTypeToSlug(aluminumProductType);
